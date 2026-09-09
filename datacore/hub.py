@@ -58,7 +58,9 @@ def load_hub_dataset(repo_id, subset="default", split="train", *, cache_dir):
     import pyarrow.parquet as pq
 
     slug = repo_id.replace("/", "--")
-    shards_dir = os.path.join(cache_dir, "hub_data", slug, subset, split)
+    # "task_data" (not e.g. "hub_data") matches nanochat's original tasks/common.py::load_hub_dataset
+    # exactly, so a pre-existing local cache from before this moved here is reused, not re-downloaded.
+    shards_dir = os.path.join(cache_dir, "task_data", slug, subset, split)
     # the manifest is written last, so its existence means the download completed
     manifest_path = os.path.join(shards_dir, "manifest.json")
     if not os.path.exists(manifest_path):
