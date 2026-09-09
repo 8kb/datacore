@@ -54,3 +54,26 @@ No real tokenizer or GPU required — `CharTokenizer` and `torch`'s CPU path cov
 host application (or `modelcore`, a sibling standalone component); see
 [docs/architecture.md](docs/architecture.md#verifying-a-change-is-behavior-preserving) for the
 full verification recipe, including a from-scratch standalone-copy check.
+
+## Development
+
+```bash
+git clone git@github.com:8kb/datacore.git && cd datacore
+uv venv && source .venv/bin/activate
+uv sync --group dev
+python -m pytest datacore/tests -v
+```
+
+A host application (e.g. [8kb/nanochat](https://github.com/8kb/nanochat)) pins this repo by git
+tag in its own `pyproject.toml` (`[tool.uv.sources]`) — `uv sync` there fetches this exact tag.
+For the cross-repo inner dev loop, editing both together without round-tripping through a tag:
+
+```bash
+# from the host repo, after its own uv sync has run once
+uv pip install -e ../datacore
+```
+
+Docs-only changes need no tag bump. A code change should be tagged here, then the host's pin
+bumped and its own suite re-run before the change is considered landed — see
+[docs/architecture.md#verifying-a-change-is-behavior-preserving](docs/architecture.md#verifying-a-change-is-behavior-preserving)
+and [AGENTS.md](AGENTS.md).
