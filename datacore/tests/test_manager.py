@@ -184,6 +184,56 @@ def test_read_rows_round_trips_through_data_manager(tmp_path):
     assert tokens.shape == (dataset.num_sequences("train"), 7)
 
 
+def test_prepare_writes_token_bytes_when_tokenizer_supports_it(tmp_path):
+    tok = CharTokenizer(CHARS)
+    store = FileSystemDatasetStore(str(tmp_path))
+    manager = DataManager()
+    manifest = manager.prepare(
+        store, sources={"train": ListTextSource([("f", ["one two three.\n"] * 5)])}, tokenizer=tok,
+        sequence_len=8, sequences_per_volume=5, packer=BestFitCropPacker(buffer_size=10),
+    )
+    assert manifest["token_bytes_file"] == "token_bytes.npy"
+
+    dataset = manager.open(store)
+    assert dataset.info.has_token_bytes is True
+    values = manager.token_bytes(dataset)
+    assert values.tolist() == tok.token_byte_lengths()
+
+
+def test_prepare_omits_token_bytes_when_tokenizer_lacks_it(tmp_path):
+    class NoByteLengthsTokenizer:
+        """A minimal Tokenizer satisfying only the required Protocol members -- no
+        token_byte_lengths() -- to prove the artefact is truly optional."""
+        def __init__(self, inner):
+            self._inner = inner
+
+        def encode(self, text, prepend=None, num_threads=8):
+            return self._inner.encode(text, prepend=prepend, num_threads=num_threads)
+
+        def get_bos_token_id(self):
+            return self._inner.get_bos_token_id()
+
+        def get_vocab_size(self):
+            return self._inner.get_vocab_size()
+
+        def fingerprint(self):
+            return self._inner.fingerprint()
+
+    tok = NoByteLengthsTokenizer(CharTokenizer(CHARS))
+    store = FileSystemDatasetStore(str(tmp_path))
+    manager = DataManager()
+    manifest = manager.prepare(
+        store, sources={"train": ListTextSource([("f", ["one two three.\n"] * 5)])}, tokenizer=tok,
+        sequence_len=8, sequences_per_volume=5, packer=BestFitCropPacker(buffer_size=10),
+    )
+    assert "token_bytes_file" not in manifest
+
+    dataset = manager.open(store)
+    assert dataset.info.has_token_bytes is False
+    with pytest.raises(ValueError):
+        manager.token_bytes(dataset)
+
+
 def test_two_splits_from_different_sources(tmp_path):
     tok = CharTokenizer(CHARS)
     train_source = ListTextSource([("f1", ["training text here.\n"] * 20)])

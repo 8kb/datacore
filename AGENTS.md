@@ -26,6 +26,7 @@ datacore/
 ├── sources.py             TextSource/TokenSource protocols, ParquetDirectorySource
 ├── download.py             corpus download helper (stdlib urllib, no torch/requests)
 ├── tokenizer.py             Tokenizer/CharTokenizer protocol + reference implementation
+│                            (token_byte_lengths() is an OPTIONAL fifth member)
 └── tests/                   this repo's own test suite
 ```
 
@@ -58,6 +59,13 @@ datacore/
   `BestFitCropPacker`/`BestFitPadPacker` against that frozen reference — a change to `packing.py`
   needs that check run too, since this repo's own suite has no fixture proving byte-identical
   output to the pre-extraction algorithm.
+- **The per-token byte-length table (`token_bytes.npy`, for a host's bits-per-byte eval) is
+  entirely the tokenizer's data.** `prepare()` only calls the tokenizer's optional
+  `token_byte_lengths()` and persists whatever comes back (see `docs/architecture.md`'s "Sources
+  and the tokenizer interface") — datacore never derives byte lengths itself. A dataset prepared
+  before this existed, or against a tokenizer without the method, has no artefact;
+  `Dataset.token_bytes()`/`DataManager.token_bytes()` raise rather than guess. There is no
+  backfill path — re-prepare the dataset.
 
 ## Testing
 

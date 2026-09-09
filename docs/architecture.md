@@ -41,6 +41,7 @@ A prepared dataset is one directory: `manifest.json` plus `.npy` volumes per spl
   manifest.json
   train_000000.npy   train_000000.mask.npy   train_000001.npy   ...
   val_000000.npy     ...
+  token_bytes.npy    (optional)
 ```
 
 Plain `.npy`, not a hand-rolled binary header — `np.load(path, mmap_mode="r")` gives a
@@ -50,6 +51,14 @@ the mask's presence is a directory fact (and a `manifest["has_mask"]` flag), not
 - Tokens: `(rows, sequence_len + 1)`, `uint16` when `vocab_size <= 65535` else `uint32`
   (`store.token_dtype`).
 - Mask (only when the packer emits one): `(rows, sequence_len + 1)`, `uint8`.
+- `token_bytes.npy` (only when the tokenizer supplies it): `(vocab_size,)`, `int32` — the number of
+  UTF-8 bytes each token id represents, `0` for a token not to be counted (e.g. a special token).
+  This is a tokenizer fact, not a datacore one: `prepare()` calls the tokenizer's own optional
+  `token_byte_lengths()` (see `datacore/tokenizer.py`'s `Tokenizer` protocol) and persists whatever
+  it returns, verbatim. A host's bits-per-byte eval reads it back via
+  `DataManager.token_bytes(dataset)` — no tokenizer directory needed at eval time, and no fallback
+  computation inside datacore if the tokenizer doesn't have the method: the artefact is simply
+  absent, and `token_bytes(dataset)` raises telling the caller to re-prepare.
 
 Row width is `sequence_len + 1` so `inputs = row[:-1]`, `targets = row[1:]`. `-1` (ignore_index)
 is never stored on disk — the reader derives it from the mask at read time, which is what keeps an
@@ -132,6 +141,12 @@ ever learning what produced them.
 `get_bos_token_id()`, `get_vocab_size()`, `fingerprint()`. Any tokenizer satisfying this shape
 works unmodified — no adapter needed. `CharTokenizer` is the dependency-free implementation
 datacore's own tests use: id `0` is `<unk>`, ids `1..N` a fixed character list, id `N+1` is BOS.
+
+`token_byte_lengths() -> list[int]` (length `vocab_size`) is an OPTIONAL fifth member, checked with
+`getattr(tokenizer, "token_byte_lengths", None)` rather than declared on the `Protocol` itself
+(declaring it there would make every tokenizer without it fail `isinstance(tok, Tokenizer)`).
+`prepare()` calls it once, if present, and writes the result as `token_bytes.npy` (see "The
+on-disk format" above) — this is the only artefact datacore persists that it never derives itself.
 
 ## Runtime shape: what needs torch
 

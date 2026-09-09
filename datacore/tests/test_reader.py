@@ -292,3 +292,26 @@ def test_dataset_info_padding_id_from_pad_packer_manifest(tmp_path):
     dataset = open_dataset(store)
     assert dataset.info.padding_id == 9
     assert dataset.info.bos_token_id == 9
+
+
+def test_token_bytes_absent_from_manifest_raises(tmp_path):
+    """A manifest predating token_bytes_file (the _make_dataset shape used throughout this file)
+    must still open fine -- has_token_bytes False, token_bytes() raises rather than KeyError."""
+    store = _make_dataset(tmp_path, n_sequences=3, sequence_len=2, volume_cap=2)
+    dataset = open_dataset(store)
+    assert dataset.info.has_token_bytes is False
+    with pytest.raises(ValueError):
+        dataset.token_bytes()
+
+
+def test_token_bytes_present_round_trips(tmp_path):
+    store = _make_dataset(tmp_path, n_sequences=3, sequence_len=2, volume_cap=2)
+    manifest = store.read_manifest()
+    values = np.array([0, 1, 1, 2, 0], dtype=np.int32)
+    store.write_volume("token_bytes.npy", values)
+    manifest["token_bytes_file"] = "token_bytes.npy"
+    store.write_manifest(manifest)
+
+    dataset = open_dataset(store)
+    assert dataset.info.has_token_bytes is True
+    assert dataset.token_bytes().tolist() == values.tolist()
