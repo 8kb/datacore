@@ -16,6 +16,7 @@ import os
 import numpy as np
 
 FORMAT = "datacore.v1"
+TOKEN_BYTES_FILE = "token_bytes.npy"  # optional artefact, see manager.prepare()/reader.Dataset.token_bytes
 
 
 def token_dtype(vocab_size: int) -> np.dtype:

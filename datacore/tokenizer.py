@@ -7,6 +7,12 @@ Not an ABC -- duck typing is enough, and datacore has no business enforcing what
 tokenizer subclasses from. nanochat.tokenizer.RustBPETokenizer already satisfies this protocol
 unmodified: encode(text, prepend=, num_threads=), get_bos_token_id(), get_vocab_size(),
 fingerprint().
+
+token_byte_lengths() is an OPTIONAL member -- not declared on the Protocol below, checked with
+plain `hasattr` at prepare() time (the same duck-typed optionality as a Packer's `padding_id`).
+When a tokenizer provides it, prepare() persists the returned vector alongside the dataset so a
+host's bits-per-byte eval never needs a tokenizer directory at read time. See
+datacore/manager.py's prepare() and datacore/reader.py's Dataset.token_bytes().
 """
 import hashlib
 from typing import Protocol, runtime_checkable
@@ -29,6 +35,10 @@ class Tokenizer(Protocol):
         """Content hash identifying what a token id means -- see
         nanochat.tokenizer.RustBPETokenizer.fingerprint for the convention this mirrors."""
         ...
+
+    # token_byte_lengths() is intentionally NOT declared here -- it's optional, see the module
+    # docstring. A tokenizer that has it satisfies this Protocol just the same, since
+    # @runtime_checkable isinstance() checks only check the methods actually declared above.
 
 
 class CharTokenizer:
@@ -76,3 +86,9 @@ class CharTokenizer:
     def fingerprint(self) -> str:
         h = hashlib.sha256(self.chars.encode("utf-8"))
         return h.hexdigest()[:16]
+
+    def token_byte_lengths(self) -> list:
+        """UTF-8 byte count per token id, 0 for <unk> and <|bos|> (not real content, not
+        counted) -- exercises datacore's own token_bytes artefact path with no BPE tokenizer
+        installed. See the module docstring."""
+        return [0] + [len(c.encode("utf-8")) for c in self.chars] + [0]

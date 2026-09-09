@@ -5,9 +5,11 @@ from one (read) goes through here. Nothing else in datacore (packing, writer, re
 download internals) is meant to be used directly from outside the package -- see the module
 docstrings for why each exists, but DataManager is the seam (mirrors modelcore.ModelManager).
 """
+import numpy as np
+
 from datacore.reader import Dataset, batches as _batches, open_dataset
 from datacore.sources import named_document_batches
-from datacore.store import FORMAT, token_dtype
+from datacore.store import FORMAT, TOKEN_BYTES_FILE, token_dtype
 from datacore.writer import write_split
 
 
@@ -55,6 +57,21 @@ class DataManager:
             "sequences_per_volume": sequences_per_volume,
             "splits": manifest_splits,
         }
+        # token_byte_lengths() is an OPTIONAL tokenizer method (see datacore/tokenizer.py) -- when
+        # present, persist the vector it returns as its own volume so a host's bits-per-byte eval
+        # never needs a tokenizer directory at read time. Omitted (not written as None) when the
+        # tokenizer doesn't have it, matching bos_token_id/mask_file/padding_id's own back-compat
+        # convention. Written before the manifest, which is always written last -- so a manifest
+        # naming this file is a guarantee the file exists.
+        token_byte_lengths = getattr(tokenizer, "token_byte_lengths", None)
+        if token_byte_lengths is not None:
+            values = token_byte_lengths()
+            assert len(values) == vocab_size, (
+                f"tokenizer.token_byte_lengths() returned {len(values)} values, expected "
+                f"vocab_size={vocab_size}"
+            )
+            store.write_volume(TOKEN_BYTES_FILE, np.asarray(values, dtype=np.int32))
+            manifest["token_bytes_file"] = TOKEN_BYTES_FILE
         store.write_manifest(manifest)
         return manifest
 
@@ -66,6 +83,13 @@ class DataManager:
 
     def read_rows(self, dataset: Dataset, split: str, start: int, count: int):
         return dataset.read_rows(split, start, count)
+
+    def token_bytes(self, dataset: Dataset) -> np.ndarray:
+        """The per-token UTF-8 byte-length vector supplied by the tokenizer at prepare() time
+        (see prepare()'s token_byte_lengths() handling) -- 0 for any token not to be counted
+        (special tokens). Raises if this dataset was prepared before that artefact existed, or
+        against a tokenizer without token_byte_lengths()."""
+        return dataset.token_bytes()
 
 
 def _split_totals_to_dict(totals):

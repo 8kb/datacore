@@ -11,6 +11,11 @@ a manifest plus `.npy` volumes (`datacore.v1`). It knows nothing about a corpus'
 (which URL, which shard count, which task mixture is validation): that's a host application's
 job, sitting on top and handing `prepare()` a source.
 
+It also ships `ExampleSet`/`ExampleMixture`/`ExampleSequence` (a sliceable in-memory record
+collection with deterministic mixing) and `HubTable`/`load_hub_dataset` (a HuggingFace Hub
+dataset's parquet export, read once and cached) — a separate, standalone surface a host's own
+eval/training-data code builds on; see [docs/architecture.md](docs/architecture.md#examplesethubtable-a-separate-standalone-value-type-surface).
+
 See [docs/architecture.md](docs/architecture.md) for the full contract.
 
 ## Quickstart

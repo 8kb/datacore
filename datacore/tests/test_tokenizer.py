@@ -52,3 +52,13 @@ def test_fingerprint_deterministic_and_sensitive_to_chars():
 def test_satisfies_tokenizer_protocol():
     from datacore import Tokenizer
     assert isinstance(CharTokenizer(CHARS), Tokenizer)
+
+
+def test_token_byte_lengths_shape_and_values():
+    tok = CharTokenizer(CHARS)
+    lengths = tok.token_byte_lengths()
+    assert len(lengths) == tok.get_vocab_size()
+    assert lengths[0] == 0  # <unk> not counted
+    assert lengths[-1] == 0  # <|bos|> not counted
+    # every CHARS entry here is a single ASCII byte
+    assert lengths[1:-1] == [1] * len(CHARS)

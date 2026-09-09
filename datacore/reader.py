@@ -25,6 +25,9 @@ class DatasetInfo:
     bos_token_id: int | None  # None only for a manifest predating this field
     padding_id: int | None  # the packer's resolved pad-fill id; None for a packer with no padding
                             # concept at all (BestFitCropPacker), not for "defaulted to bos"
+    has_token_bytes: bool  # whether the tokenizer supplied a token_byte_lengths() vector at
+                           # prepare() time -- see Dataset.token_bytes(). False for a manifest
+                           # predating this field, or one prepared against a tokenizer without it.
     splits: dict  # split_name -> {"num_sequences", "num_tokens", "num_documents",
                   #                "num_documents_dropped", "num_tokens_encoded", "num_tokens_dropped"}
 
@@ -111,6 +114,7 @@ class Dataset:
             packer_name=manifest["packer"]["name"],
             bos_token_id=manifest.get("bos_token_id"),
             padding_id=manifest["packer"]["params"].get("padding_id"),
+            has_token_bytes=bool(manifest.get("token_bytes_file")),
             splits={
                 split: {**{k: v for k, v in data.items() if k != "volumes"}, "num_volumes": len(data["volumes"])}
                 for split, data in manifest["splits"].items()
@@ -126,6 +130,28 @@ class Dataset:
         input/target shift and DDP cursor logic, for callers that want whole rows (e.g. a
         diagnostic scan) rather than a training batch. mask is None when the dataset has none."""
         return self._split_indices[split].read_contiguous(start, count)
+
+    def token_bytes(self) -> np.ndarray:
+        """The per-token UTF-8 byte-length vector the tokenizer supplied at prepare() time (see
+        manager.prepare()'s token_byte_lengths() handling) -- shape (vocab_size,), 0 for any
+        token not to be counted (e.g. special tokens). Plain numpy, not a tensor -- this module
+        (reader.py) is the only place in datacore that imports torch, and only lazily inside
+        batches(); a caller that needs a tensor converts it, same as it converts inputs/targets.
+
+        Raises if this dataset predates the artefact, or was prepared against a tokenizer with no
+        token_byte_lengths() -- re-prepare it (against a tokenizer that has one) to fix, there is
+        no backfill path."""
+        file = self.manifest.get("token_bytes_file")
+        if not file:
+            where = getattr(self.store, "dataset_dir", None)
+            where_msg = f" ({where})" if where else ""
+            raise ValueError(
+                f"this dataset{where_msg} has no token_bytes artefact -- it was prepared before "
+                "this field existed, or against a tokenizer without token_byte_lengths(). "
+                "Re-prepare it (DataManager.prepare) against a tokenizer that provides "
+                "token_byte_lengths()."
+            )
+        return np.asarray(self.store.open_volume(file, mmap=False))
 
 
 def open_dataset(store) -> Dataset:
