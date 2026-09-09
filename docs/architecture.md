@@ -13,6 +13,22 @@ package knows about. `scripts/data_prep.py` there is the preparation entrypoint
 [nanochat's docs/architecture.md](https://github.com/8kb/nanochat/blob/master/docs/architecture.md#consuming-datamanager)
 for that side.
 
+## `ExampleSet`/`HubTable`: a separate, standalone value-type surface
+
+`datacore/records.py` (`ExampleSet`/`ExampleMixture`/`ExampleSequence`) and `datacore/hub.py`
+(`HubTable`/`load_hub_dataset`) do **not** go through `DataManager` and do not touch the
+`datacore.v1` on-disk format at all — they're an in-memory, indexable-record-collection
+abstraction plus a HuggingFace-Hub-parquet-read mechanism, exported for a host application's own
+eval/training-data code to build on (e.g. `benchcore`'s `Task(ExampleSet)`, or a host's own SFT
+mixture). This is a deliberate second entrypoint-shaped surface, not a violation of "one
+entrypoint, one format" read narrowly — `DataManager` remains the only way to touch a prepared
+on-disk dataset; these are a separate concern datacore happens to also own because the mechanism
+(download once, read back, seeded shuffle) is identical in shape to `datacore.download`'s.
+
+`ExampleSet` knows nothing about evaluation criteria (no `evaluate()`, no `eval_type`) — a host
+subclasses it and adds those. `HubTable`/`load_hub_dataset` know nothing about *which* dataset to
+load; `cache_dir` is an explicit parameter, never read from an ambient global.
+
 ## `DataManager`: the one entrypoint
 
 Everything a caller needs — prepare a dataset, open one, or read batches from one — goes through

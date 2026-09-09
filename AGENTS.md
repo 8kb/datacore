@@ -27,6 +27,11 @@ datacore/
 ├── download.py             corpus download helper (stdlib urllib, no torch/requests)
 ├── tokenizer.py             Tokenizer/CharTokenizer protocol + reference implementation
 │                            (token_byte_lengths() is an OPTIONAL fifth member)
+├── records.py                ExampleSet/ExampleMixture/ExampleSequence -- a sliceable in-memory
+│                            record collection + deterministic-mixture combinator, separate
+│                            surface from DataManager (see docs/architecture.md)
+├── hub.py                     HubTable/load_hub_dataset -- HF-hub parquet export, read once and
+│                            cached at an explicit cache_dir (same separate surface)
 └── tests/                   this repo's own test suite
 ```
 

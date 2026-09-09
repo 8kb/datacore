@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "numpy>=1.26.0",
+    "filelock>=3.19.0",
 ]
 
 [project.optional-dependencies]
@@ -14,7 +15,9 @@ dependencies = [
 torch = [
     "torch>=2.9.1",
 ]
-# datacore.sources.ParquetDirectorySource, for a corpus stored as parquet shards.
+# datacore.sources.ParquetDirectorySource (a corpus stored as parquet shards) and
+# datacore.hub.load_hub_dataset (a HuggingFace Hub dataset's parquet export) -- both import
+# pyarrow lazily, inside the call, so importing datacore itself never requires it.
 parquet = [
     "pyarrow>=21.0.0",
 ]
