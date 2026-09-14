@@ -5,13 +5,12 @@ it back as flexible-batch-size, DDP-shardable, exactly-resumable batches. It is 
 counterpart to `modelcore`: same shape (zero host-application imports, one Manager entrypoint, its
 own tests/docs/packaging, an AST guard proving standalone-ness), different concern.
 
-Its host application, [8kb/nanochat](https://github.com/8kb/nanochat), owns the corpus's
-*identity* — which URL, which shard count, which task mixture is validation — none of which this
-package knows about. `scripts/data_prep.py` there is the preparation entrypoint
-(`--kind=base`/`--kind=sft`), `nanochat/dataset.py` keeps the corpus identity, and
-`nanochat/tokenizer.py` satisfies this package's `Tokenizer` protocol unmodified. See
-[nanochat's docs/architecture.md](https://github.com/8kb/nanochat/blob/master/docs/architecture.md#consuming-datamanager)
-for that side.
+A host application owns the corpus's *identity* — which URL, which shard count, which task mixture
+is validation — none of which this package knows about; its own tokenizer satisfies this package's
+`Tokenizer` protocol unmodified. See that host's own `docs/architecture.md` for its side (e.g.
+[nanochat's](https://github.com/8kb/nanochat/blob/master/docs/architecture.md#consuming-datamanager),
+whose `scripts/data_prep.py` is its preparation entrypoint and `nanochat/dataset.py` its corpus
+identity).
 
 ## `ExampleSet`/`HubTable`: a separate, standalone value-type surface
 
@@ -186,11 +185,12 @@ check (the actual proof `cp -r datacore /somewhere/else` is a real, testable cla
 mkdir -p /tmp/dc && cp -r datacore /tmp/dc/datacore && cd /tmp/dc && python -m pytest datacore/tests -v
 ```
 
-For anything touching the packing algorithms specifically, cross-check against
-`tests/goldens/data_bestfit_{crop,pad}.json` (captured from the host application's pre-datacore
-packing code by `dev/capture_data_goldens.py`, frozen) via `tests/test_data_packing_parity.py` in
-the host repo, [8kb/nanochat](https://github.com/8kb/nanochat) — see
-[its docs/architecture.md](https://github.com/8kb/nanochat/blob/master/docs/architecture.md#verifying-a-change-is-behavior-preserving)
-for that side. This repo's own suite proving correctness of a fresh build is necessary but not
-proof a change leaves the host unaffected — for a change the host depends on, also run its suite
-against an editable install (`uv pip install -e ../datacore` from nanochat's venv).
+For anything touching the packing algorithms specifically, a host application that migrated from
+its own pre-datacore packing code may keep a frozen parity golden cross-checking
+`BestFitCropPacker`/`BestFitPadPacker` against it — see
+[nanochat's `tests/test_data_packing_parity.py`](https://github.com/8kb/nanochat/blob/master/docs/architecture.md#verifying-a-change-is-behavior-preserving)
+for a worked example. This repo's own suite proving correctness of a fresh build is necessary but
+not proof a change leaves a host unaffected — for a change a host depends on, also run that host's
+suite against an editable install (`uv pip install -e ../datacore` from its venv). See
+[`llmllab/docs/subsystem-conventions.md`](../llmllab/docs/subsystem-conventions.md) for the general
+tag-bump/verification contract.

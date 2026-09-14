@@ -8,10 +8,10 @@ For the family-wide pattern this repo follows (one entrypoint, zero host imports
 consumption contract) see [llmllab/AGENTS.md](../llmllab/AGENTS.md) and
 [llmllab/docs/subsystem-conventions.md](../llmllab/docs/subsystem-conventions.md).
 
-Its host application is [8kb/nanochat](https://github.com/8kb/nanochat), which pins this repo by
-git tag (`pyproject.toml`'s `[tool.uv.sources]`) and consumes it entirely through `DataManager` —
-see nanochat's own [docs/architecture.md](https://github.com/8kb/nanochat/blob/master/docs/architecture.md)
-for that side, and `scripts/data_prep.py` there for the preparation entrypoint.
+A host application pins this repo by git tag (`pyproject.toml`'s `[tool.uv.sources]`) and consumes
+it entirely through `DataManager` — see [`llmllab/AGENTS.md`](../llmllab/AGENTS.md)'s family map
+for which repos currently do that, and each one's own `docs/architecture.md` for its side of the
+contract.
 
 ## Repo map
 
@@ -58,12 +58,11 @@ datacore/
 - **No ambient globals.** `rank`/`world_size`/`device` are always explicit parameters to
   `batches()`, never read from the environment — same rule `modelcore.runtime` applies to compute
   dtype (see [modelcore/AGENTS.md](../modelcore/AGENTS.md)), independently arrived at here.
-- **The packing algorithms' parity proof lives in the host repo, not here.** nanochat's
-  `tests/goldens/data_bestfit_{crop,pad}.json` (captured from its pre-datacore packing code by
-  `dev/capture_data_goldens.py`, frozen) and `tests/test_data_packing_parity.py` cross-check
-  `BestFitCropPacker`/`BestFitPadPacker` against that frozen reference — a change to `packing.py`
-  needs that check run too, since this repo's own suite has no fixture proving byte-identical
-  output to the pre-extraction algorithm.
+- **A packing-algorithm parity proof against a pre-datacore migration belongs in whichever host
+  did that migration, not here** — this repo's own suite proves a fresh build correct, not
+  byte-identical output to some host's pre-extraction code (nanochat's
+  `tests/test_data_packing_parity.py` is a worked example). A change to `packing.py` needs that
+  host's check run too, wherever one exists.
 - **The per-token byte-length table (`token_bytes.npy`, for a host's bits-per-byte eval) is
   entirely the tokenizer's data.** `prepare()` only calls the tokenizer's optional
   `token_byte_lengths()` and persists whatever comes back (see `docs/architecture.md`'s "Sources
@@ -85,10 +84,11 @@ sibling standalone component) — see
 [docs/architecture.md#verifying-a-change-is-behavior-preserving](docs/architecture.md#verifying-a-change-is-behavior-preserving)
 for the from-scratch standalone-copy recipe.
 
-A change here that a host application depends on needs that host's own suite run against it too —
-for nanochat, `tests/test_data_packing_parity.py` (and the base-train/SFT smoke path) after an
-editable install (`uv pip install -e ../datacore` from nanochat's venv) — this repo's own tests
-proving *it* still works is necessary but not sufficient proof the host is unaffected.
+A change here that a host application depends on needs that host's own suite run against it too,
+after an editable install (`uv pip install -e ../datacore` from the host's venv) — see
+[`llmllab/docs/subsystem-conventions.md`](../llmllab/docs/subsystem-conventions.md)'s tag-bump rule.
+This repo's own tests proving *it* still works is necessary but not sufficient proof a host is
+unaffected.
 
 ## Style
 
