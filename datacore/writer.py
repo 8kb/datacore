@@ -112,6 +112,7 @@ def write_split(store, split, packer, sequence_len, sequences_per_volume, vocab_
         totals.num_tokens += n * row_capacity
         volume_index += 1
 
+    tracks_tokens_dropped = hasattr(packer, "num_tokens_dropped")
     for source_name, documents in named_document_batches:
         doc_iter = _CountingIterator(documents)
         for row in packer.pack(doc_iter, row_capacity):
@@ -120,9 +121,18 @@ def write_split(store, split, packer, sequence_len, sequences_per_volume, vocab_
         totals.num_documents += doc_iter.count
         totals.num_tokens_encoded += doc_iter.token_count
         totals.num_documents_dropped += getattr(packer, "num_documents_dropped", 0)
+        if tracks_tokens_dropped:
+            totals.num_tokens_dropped += packer.num_tokens_dropped
         flush_volume(source_name)  # source-file boundary: flush whatever is buffered, even if short
 
-    totals.num_tokens_dropped = max(0, totals.num_tokens_encoded - totals.num_tokens)
+    if not tracks_tokens_dropped:
+        # Fallback for a packer with no dedicated tracking (e.g. BestFitCropPacker, which drops
+        # partial rows/crops rather than whole documents): derive it from the totals instead. Only
+        # safe when num_tokens counts nothing beyond what was actually encoded from the source --
+        # a packer that pads (inflating num_tokens with filler never present in num_tokens_encoded)
+        # must track num_tokens_dropped itself, or this difference silently clamps to 0 and hides
+        # real drops (see BestFitPadPacker.num_tokens_dropped).
+        totals.num_tokens_dropped = max(0, totals.num_tokens_encoded - totals.num_tokens)
     return totals
 
 

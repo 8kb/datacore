@@ -70,6 +70,11 @@ def test_dropped_oversized_documents_are_counted(tmp_path):
                           vocab_size=100, named_document_batches=[("f", docs)])
     assert totals.num_documents == 2
     assert totals.num_documents_dropped == 1
+    # num_tokens_dropped must come from the packer's own tracking (BestFitPadPacker.num_tokens_dropped),
+    # not a derived num_tokens_encoded - num_tokens difference: the surviving doc gets padded out to
+    # row_capacity, which would push that difference negative (and get clamped to 0, hiding the real
+    # 50-token loss) if it were used instead. See writer.write_split's tracks_tokens_dropped branch.
+    assert totals.num_tokens_dropped == 50
 
 
 def test_token_accounting_reflects_cropping_loss(tmp_path):
