@@ -19,20 +19,21 @@ through a TokenSource into DataManager.prepare(); datacore itself never does tha
 Importing this package triggers no side effects (unlike modelcore's @register_component catalog)
 -- there is no registry here to populate.
 """
+from datacore.errors import DatasetMismatch
 from datacore.hub import HubTable, load_hub_dataset
 from datacore.manager import DataManager
 from datacore.packing import BestFitCropPacker, BestFitPadPacker, EncodedDoc, Packer, PackedRow
 from datacore.reader import Dataset, DatasetInfo
 from datacore.records import ExampleMixture, ExampleSequence, ExampleSet
-from datacore.sources import ParquetDirectorySource, TextSource, TokenSource
+from datacore.sources import ExampleTokenSource, ParquetDirectorySource, TextSource, TokenSource
 from datacore.store import DatasetStore, FileSystemDatasetStore
 from datacore.tokenizer import CharTokenizer, Tokenizer
 
 __all__ = [
-    "DataManager",
+    "DataManager", "DatasetMismatch",
     "Tokenizer", "CharTokenizer",
     "Packer", "BestFitCropPacker", "BestFitPadPacker", "EncodedDoc", "PackedRow",
-    "TextSource", "TokenSource", "ParquetDirectorySource",
+    "TextSource", "TokenSource", "ParquetDirectorySource", "ExampleTokenSource",
     "DatasetStore", "FileSystemDatasetStore",
     "Dataset", "DatasetInfo",
     "ExampleSet", "ExampleMixture", "ExampleSequence",

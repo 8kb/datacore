@@ -7,6 +7,7 @@ docstrings for why each exists, but DataManager is the seam (mirrors modelcore.M
 """
 import numpy as np
 
+from datacore.errors import DatasetMismatch
 from datacore.reader import Dataset, batches as _batches, open_dataset
 from datacore.sources import named_document_batches
 from datacore.store import FORMAT, TOKEN_BYTES_FILE, token_dtype
@@ -75,8 +76,21 @@ class DataManager:
         store.write_manifest(manifest)
         return manifest
 
-    def open(self, store) -> Dataset:
-        return open_dataset(store)
+    def open(self, store, *, expect_sequence_len: int | None = None, expect_fingerprint: str | None = None) -> Dataset:
+        """Opens the dataset at `store` (raising FileNotFoundError if it hasn't been prepared, same
+        as always). expect_sequence_len/expect_fingerprint are opt-in: when given, raises
+        DatasetMismatch if the dataset's own info.sequence_len/info.tokenizer_fingerprint disagrees
+        -- datacore still never decides *to* compare (a caller that passes neither sees exactly
+        today's behavior); this only saves every caller re-writing the same two checks (previously
+        duplicated identically across nanochat's scripts/base_train.py, scripts/base_eval.py, and
+        tinylab's tinylab/ops/train.py). Remediation text (what command/step to re-run) stays the
+        caller's own, since datacore doesn't know how a host reprepares a dataset."""
+        dataset = open_dataset(store)
+        if expect_sequence_len is not None and dataset.info.sequence_len != expect_sequence_len:
+            raise DatasetMismatch("sequence_len", expect_sequence_len, dataset.info.sequence_len)
+        if expect_fingerprint is not None and dataset.info.tokenizer_fingerprint != expect_fingerprint:
+            raise DatasetMismatch("tokenizer_fingerprint", expect_fingerprint, dataset.info.tokenizer_fingerprint)
+        return dataset
 
     def batches(self, dataset: Dataset, split: str, batch_size: int, **kwargs):
         return _batches(dataset, split, batch_size, **kwargs)

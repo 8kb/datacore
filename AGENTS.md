@@ -17,13 +17,16 @@ contract.
 
 ```
 datacore/
-├── manager.py         DataManager -- the one entrypoint (prepare / open / batches)
+├── manager.py         DataManager -- the one entrypoint (prepare / open / batches); open()'s
+│                      expect_sequence_len=/expect_fingerprint= raise errors.DatasetMismatch
+├── errors.py            DatasetMismatch
 ├── store.py            DatasetStore protocol + FileSystemDatasetStore; token_dtype()
 ├── packing.py           BestFitCropPacker / BestFitPadPacker
 ├── writer.py             write_split() -- turns tokenized text into packed .npy volumes
 ├── reader.py              Dataset/DatasetInfo/SplitIndex, open_dataset(), batches() -- the
 │                          only module that imports torch, lazily, inside batches()
-├── sources.py             TextSource/TokenSource protocols, ParquetDirectorySource
+├── sources.py             TextSource/TokenSource protocols, ParquetDirectorySource,
+│                          ExampleTokenSource (an ExampleSet -> TokenSource adapter)
 ├── download.py             corpus download helper (stdlib urllib, no torch/requests)
 ├── tokenizer.py             Tokenizer/CharTokenizer protocol + reference implementation
 │                            (token_byte_lengths() is an OPTIONAL fifth member)
@@ -39,11 +42,13 @@ datacore/
 
 - **A prepared dataset's `sequence_len` and tokenizer fingerprint are fixed, and a caller's must
   match, or `batches()`/`open_dataset()` should be treated as raising, not warning.** This package
-  itself doesn't own the tokenizer-identity check (a host provides its own tokenizer and compares
-  its fingerprint against `dataset.info.tokenizer_fingerprint`), but the on-disk `sequence_len` is
-  fixed at prepare time and every row is exactly that length — a caller reading at a different
-  length is a bug, not a variant. Batch size, world size, rank, and split are the only things free
-  at read time.
+  itself never decides *to* compare (a host provides its own tokenizer and, by default, must
+  compare its fingerprint against `dataset.info.tokenizer_fingerprint` itself), but `DataManager.open`
+  does the comparison on request: pass `expect_sequence_len=`/`expect_fingerprint=` and a mismatch
+  raises `datacore.DatasetMismatch` rather than the host re-implementing the same two `!=` checks
+  (this replaced three identical copies of exactly that check across nanochat/tinylab). Omitting
+  both keywords is unchanged from before this existed. Batch size, world size, rank, and split are
+  the only things free at read time.
 - **The dataloader state is an exact global sequence cursor, not an approximation.**
   `{"format": "datacore.v1", "cursor", "epoch", "num_sequences", "batch_size", "world_size"}` —
   `cursor` is the count of sequences consumed by all ranks so far, world-size-independent by

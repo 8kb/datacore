@@ -28,14 +28,26 @@ on-disk dataset; these are a separate concern datacore happens to also own becau
 subclasses it and adds those. `HubTable`/`load_hub_dataset` know nothing about *which* dataset to
 load; `cache_dir` is an explicit parameter, never read from an ambient global.
 
+An `ExampleSet`/`ExampleMixture`'s `stop=` constructor kwarg (inherited from `ExampleSet.__init__`)
+caps its apparent length; `__len__` clamps `stop` to the true total even when the caller passes an
+over-large value, so `ExampleMixture(sets, stop=N)` is the whole "cap at N examples" idiom — no
+wrapper class needed (this replaced an identical `_Truncated` class duplicated in nanochat's and
+tinylab's own data-prep code).
+
+`datacore.sources.ExampleTokenSource(example_set, render, name, chunk_size=2000)` adapts an
+`ExampleSet`/`ExampleMixture` into the `TokenSource` protocol `DataManager.prepare` consumes:
+`render(record) -> (ids, mask)` is the one caller-supplied piece (e.g. a conversation renderer),
+chunked so `prepare()` gets a volume-flush boundary every `chunk_size` records instead of one at
+the very end.
+
 ## `DataManager`: the one entrypoint
 
 Everything a caller needs — prepare a dataset, open one, or read batches from one — goes through
 `DataManager`. Nothing else in `datacore` (`packing`, `writer`, `reader` internals, `sources`,
 `download`) is meant to be reached directly from outside the package, except the value types and
 protocols `datacore/__init__.py` re-exports (`Tokenizer`, `CharTokenizer`, `Packer` and its two
-implementations, `TextSource`/`TokenSource`/`ParquetDirectorySource`, `DatasetStore`/
-`FileSystemDatasetStore`, `Dataset`/`DatasetInfo`).
+implementations, `TextSource`/`TokenSource`/`ParquetDirectorySource`/`ExampleTokenSource`,
+`DatasetStore`/`FileSystemDatasetStore`, `Dataset`/`DatasetInfo`, `DatasetMismatch`).
 
 ```python
 manager = DataManager()
@@ -46,6 +58,13 @@ for inputs, targets, state in manager.batches(dataset, "train", batch_size=32, d
                                                rank=r, world_size=W, resume=saved_state):
     ...
 ```
+
+`open(store, *, expect_sequence_len=None, expect_fingerprint=None)`'s two keywords are opt-in: when
+given, a mismatch against `dataset.info.sequence_len`/`.tokenizer_fingerprint` raises a typed
+`DatasetMismatch(reason, expected, actual)` rather than the caller writing the same `!=` check
+itself (this is a caller-requested check, not `datacore` deciding to compare on its own — see
+`AGENTS.md`'s "tokenizer fingerprint" invariant). Neither keyword changes `open`'s behavior when
+omitted.
 
 ## The on-disk format (`datacore.v1`)
 

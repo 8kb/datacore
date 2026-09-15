@@ -52,6 +52,32 @@ def named_document_batches(source, tokenizer, *, num_threads: int = 8):
 
 
 @dataclass
+class ExampleTokenSource:
+    """Adapts a datacore.records.ExampleSet (or ExampleMixture) into the TokenSource protocol:
+    each record is rendered via `render` (record -> (ids, mask)) here, in chunks, so
+    DataManager.prepare gets a volume flush boundary every `chunk_size` records rather than one
+    giant flush at the very end. Moved here from two identical copies (nanochat's
+    scripts/data_prep.py's TaskMixtureTokenSource, tinylab's tinylab/ops/prepare.py's) -- the loop
+    and chunking were pure ExampleSet-to-TokenSource glue; the one thing that actually varied
+    (which render call turns a record into (ids, mask), e.g. a conversation renderer with its own
+    max_tokens) is `render`, supplied by the caller."""
+    example_set: object          # an ExampleSet/ExampleMixture -- anything with __len__/__getitem__
+    render: object                # Callable[[record], tuple[list[int], list[int]]]
+    name: str
+    chunk_size: int = 2000
+
+    def token_batches(self):
+        n = len(self.example_set)
+        for start in range(0, n, self.chunk_size):
+            end = min(start + self.chunk_size, n)
+            docs = []
+            for i in range(start, end):
+                ids, mask = self.render(self.example_set[i])
+                docs.append(EncodedDoc(ids=ids, mask=mask))
+            yield f"{self.name}[{start}:{end}]", docs
+
+
+@dataclass
 class ParquetDirectorySource:
     """Reads text documents from an explicit, ordered list of parquet files -- one file is one
     source_name/volume-flush boundary (see datacore/writer.py). `paths` order and which files

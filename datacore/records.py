@@ -34,7 +34,11 @@ class ExampleSet:
 
     def __len__(self):
         start = self.start
-        stop = self.num_examples() if self.stop is None else self.stop
+        # An explicit stop is clamped to the true length too -- not just the `stop is None`
+        # default case -- so a caller can pass an over-large stop (e.g. "cap at N, whatever N is")
+        # without separately computing min(N, num_examples()) first; see ExampleMixture's
+        # docstring for the caller-facing convenience this enables.
+        stop = self.num_examples() if self.stop is None else min(self.stop, self.num_examples())
         step = self.step
         span = stop - start
         num = (span + step - 1) // step # ceil_div(span, step)
@@ -52,6 +56,11 @@ class ExampleMixture(ExampleSet):
     Mixes multiple ExampleSets into one, deterministically shuffled so the sets interleave
     throughout instead of appearing as contiguous blocks.
     Fun trick: if you wish to oversample any set, just pass it in multiple times in the list.
+
+    To cap a mixture at N examples (e.g. a smoke-test-sized run), pass stop=N straight through to
+    ExampleSet's own constructor kwarg: ExampleMixture(sets, stop=N). __len__ clamps stop to the
+    true total itself, so N may exceed it -- no need to compute min(N, total) first, or write a
+    wrapper class to do it.
     """
 
     def __init__(self, sets, **kwargs):

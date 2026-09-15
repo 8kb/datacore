@@ -1,6 +1,6 @@
 import pytest
 
-from datacore import BestFitCropPacker, BestFitPadPacker, CharTokenizer, DataManager, FileSystemDatasetStore
+from datacore import BestFitCropPacker, BestFitPadPacker, CharTokenizer, DataManager, DatasetMismatch, FileSystemDatasetStore
 from datacore.packing import EncodedDoc
 
 torch = pytest.importorskip("torch")
@@ -232,6 +232,44 @@ def test_prepare_omits_token_bytes_when_tokenizer_lacks_it(tmp_path):
     assert dataset.info.has_token_bytes is False
     with pytest.raises(ValueError):
         manager.token_bytes(dataset)
+
+
+def test_open_with_no_expectations_behaves_as_before(tmp_path):
+    tok = CharTokenizer(CHARS)
+    store = FileSystemDatasetStore(str(tmp_path))
+    manager = DataManager()
+    manager.prepare(store, sources={"train": ListTextSource([("f", ["one two three.\n"] * 5)])},
+                     tokenizer=tok, sequence_len=8, sequences_per_volume=5, packer=BestFitCropPacker(buffer_size=10))
+    dataset = manager.open(store)
+    assert dataset.info.sequence_len == 8
+
+
+def test_open_expect_sequence_len_mismatch_raises_dataset_mismatch(tmp_path):
+    tok = CharTokenizer(CHARS)
+    store = FileSystemDatasetStore(str(tmp_path))
+    manager = DataManager()
+    manager.prepare(store, sources={"train": ListTextSource([("f", ["one two three.\n"] * 5)])},
+                     tokenizer=tok, sequence_len=8, sequences_per_volume=5, packer=BestFitCropPacker(buffer_size=10))
+    with pytest.raises(DatasetMismatch) as excinfo:
+        manager.open(store, expect_sequence_len=16)
+    assert excinfo.value.reason == "sequence_len"
+    assert excinfo.value.expected == 16
+    assert excinfo.value.actual == 8
+    # matching expectation: no raise
+    manager.open(store, expect_sequence_len=8)
+
+
+def test_open_expect_fingerprint_mismatch_raises_dataset_mismatch(tmp_path):
+    tok = CharTokenizer(CHARS)
+    store = FileSystemDatasetStore(str(tmp_path))
+    manager = DataManager()
+    manager.prepare(store, sources={"train": ListTextSource([("f", ["one two three.\n"] * 5)])},
+                     tokenizer=tok, sequence_len=8, sequences_per_volume=5, packer=BestFitCropPacker(buffer_size=10))
+    with pytest.raises(DatasetMismatch) as excinfo:
+        manager.open(store, expect_fingerprint="not-the-real-one")
+    assert excinfo.value.reason == "tokenizer_fingerprint"
+    # matching expectation: no raise
+    manager.open(store, expect_fingerprint=tok.fingerprint())
 
 
 def test_two_splits_from_different_sources(tmp_path):

@@ -41,6 +41,27 @@ def test_example_set_slicing():
     assert [s[i]["i"] for i in range(4)] == [0, 3, 6, 9]
 
 
+def test_example_set_stop_clamps_to_true_length():
+    """An over-large explicit stop is clamped, not taken at face value -- this is what lets a
+    caller pass stop=<some cap> without separately computing min(cap, len) first (replaces the
+    _Truncated wrapper class both nanochat's data_prep.py and tinylab's ops/prepare.py used to
+    define for exactly this)."""
+    s = ToyExampleSet(n=10, stop=1000)
+    assert len(s) == 10
+    assert [s[i]["i"] for i in range(10)] == list(range(10))
+    # stop below the true length still works as a normal cap
+    s2 = ToyExampleSet(n=10, stop=4)
+    assert len(s2) == 4
+
+
+def test_mixture_stop_caps_and_clamps():
+    mixture = ExampleMixture([ToyExampleSet(n=3, tag="a"), ToyExampleSet(n=5, tag="b")], stop=1000)
+    assert len(mixture) == 8  # clamped to the true total, not 1000
+    capped = ExampleMixture([ToyExampleSet(n=3, tag="a"), ToyExampleSet(n=5, tag="b")], stop=3)
+    assert len(capped) == 3
+    assert [capped[i] for i in range(3)] == [mixture[i] for i in range(3)]
+
+
 def test_mixture_covers_all_examples_deterministically():
     mixture = ExampleMixture([ToyExampleSet(n=3, tag="a"), ToyExampleSet(n=5, tag="b")])
     assert len(mixture) == 8
