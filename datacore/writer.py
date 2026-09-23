@@ -35,6 +35,11 @@ class SplitTotals:
     num_tokens: int = 0
     num_tokens_encoded: int = 0
     num_tokens_dropped: int = 0
+    # Raw source character count, from a TextSource's EncodedDoc.num_chars (see packing.py) -- 0
+    # for a split built from a TokenSource (e.g. SFT conversation rendering), which never has raw
+    # text pass through datacore at all. Lets a caller compute chars/token without a second corpus
+    # read.
+    num_chars_encoded: int = 0
 
 
 class _VolumeAccumulator:
@@ -120,6 +125,7 @@ def write_split(store, split, packer, sequence_len, sequences_per_volume, vocab_
                 flush_volume(source_name)
         totals.num_documents += doc_iter.count
         totals.num_tokens_encoded += doc_iter.token_count
+        totals.num_chars_encoded += doc_iter.char_count
         totals.num_documents_dropped += getattr(packer, "num_documents_dropped", 0)
         if tracks_tokens_dropped:
             totals.num_tokens_dropped += packer.num_tokens_dropped
@@ -144,6 +150,7 @@ class _CountingIterator:
         self._it = iter(documents)
         self.count = 0
         self.token_count = 0
+        self.char_count = 0
 
     def __iter__(self):
         return self
@@ -152,4 +159,5 @@ class _CountingIterator:
         doc = next(self._it)
         self.count += 1
         self.token_count += len(doc.ids)
+        self.char_count += doc.num_chars or 0
         return doc

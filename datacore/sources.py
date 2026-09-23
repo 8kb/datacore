@@ -43,7 +43,7 @@ def named_document_batches(source, tokenizer, *, num_threads: int = 8):
         for name, texts in source.text_batches():
             texts = list(texts)
             ids_batch = tokenizer.encode(texts, prepend=bos_id, num_threads=num_threads)
-            yield name, [EncodedDoc(ids=ids) for ids in ids_batch]
+            yield name, [EncodedDoc(ids=ids, num_chars=len(text)) for text, ids in zip(texts, ids_batch)]
     elif hasattr(source, "token_batches"):
         for name, docs in source.token_batches():
             yield name, docs

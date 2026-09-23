@@ -128,6 +128,13 @@ Two implementations, in `packing.py`:
   (which, left unfixed, degenerates into an infinite empty-padded-row generator once every other
   document in the stream has drained).
 
+Each manifest split also records `num_chars_encoded`: the raw source character count, summed from
+`EncodedDoc.num_chars` as documents pass through `write_split` (`writer.py`'s `_CountingIterator`).
+Only a `TextSource` sets it (`sources.named_document_batches` has the raw string in hand right
+before encoding it) — a `TokenSource` split (e.g. SFT conversation rendering) never has raw text
+inside datacore at all, so it stays `0` there. Lets a caller compute chars/token (a compression
+stat) straight from the manifest, without a second corpus read.
+
 `pack()` consumes its `documents` iterable to exhaustion once and never wraps back on itself —
 a caller wanting one continuous stream passes an iterable that itself cycles; a caller wanting
 per-source-file volume boundaries (i.e. `DataManager.prepare`) calls `pack()` once per file.

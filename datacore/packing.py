@@ -30,9 +30,15 @@ class EncodedDoc:
     """One already-tokenized unit to pack: `ids` includes any leading BOS the source chose to
     prepend (packing itself never adds one). `mask`, if given, is a per-token supervision mask
     the same length as `ids` (1 = train on this token, 0 = don't) -- None means "supervise
-    everything", which is what a plain pretraining document implies."""
+    everything", which is what a plain pretraining document implies. `num_chars`, if given, is the
+    document's raw source length before tokenization -- set by a TextSource (which has the raw
+    string in hand right before encoding it), left None by a TokenSource (already-encoded
+    conversations, e.g. SFT, never had raw text pass through datacore at all). Purely additive
+    bookkeeping for DataManager.prepare's manifest (num_chars_encoded) -- packing itself never
+    reads it."""
     ids: list
     mask: Optional[list] = None
+    num_chars: Optional[int] = None
 
 
 @dataclass(frozen=True)

@@ -121,4 +121,5 @@ def _split_totals_to_dict(totals):
         "num_documents_dropped": totals.num_documents_dropped,
         "num_tokens_encoded": totals.num_tokens_encoded,
         "num_tokens_dropped": totals.num_tokens_dropped,
+        "num_chars_encoded": totals.num_chars_encoded,
     }
