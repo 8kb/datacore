@@ -1,7 +1,7 @@
 """
 Test HubTable: in-memory pyarrow table wrapper + seeded shuffle (no network -- load_hub_dataset's
 actual download path is exercised only by a host application against the real HF hub API).
-Ported from nanochat/tests/test_tasks.py's HubDataset tests. Skips if pyarrow isn't installed
+Ported from our nanochat fork's tests/test_tasks.py. Skips if pyarrow isn't installed
 (the [parquet] extra).
 
 python -m pytest datacore/tests/test_hub.py -v

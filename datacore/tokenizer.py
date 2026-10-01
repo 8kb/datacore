@@ -4,9 +4,8 @@ CharTokenizer, a tiny fixed-vocabulary implementation that lets datacore's own t
 host application's smoke tests) run with no real BPE tokenizer installed at all.
 
 Not an ABC -- duck typing is enough, and datacore has no business enforcing what a caller's
-tokenizer subclasses from. nanochat.tokenizer.RustBPETokenizer already satisfies this protocol
-unmodified: encode(text, prepend=, num_threads=), get_bos_token_id(), get_vocab_size(),
-fingerprint().
+tokenizer subclasses from. Any tokenizer with encode(text, prepend=, num_threads=),
+get_bos_token_id(), get_vocab_size() and fingerprint() satisfies it unmodified.
 
 token_byte_lengths() is an OPTIONAL member -- not declared on the Protocol below, checked with
 plain `hasattr` at prepare() time (the same duck-typed optionality as a Packer's `padding_id`).
@@ -32,8 +31,8 @@ class Tokenizer(Protocol):
         ...
 
     def fingerprint(self) -> str:
-        """Content hash identifying what a token id means -- see
-        nanochat.tokenizer.RustBPETokenizer.fingerprint for the convention this mirrors."""
+        """Content hash identifying what a token id means: two tokenizers with the same
+        fingerprint map the same ids to the same strings."""
         ...
 
     # token_byte_lengths() is intentionally NOT declared here -- it's optional, see the module

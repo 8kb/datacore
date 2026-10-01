@@ -6,7 +6,7 @@ enforcing what a caller's source subclasses from.
 
 ParquetDirectorySource is the one concrete TextSource datacore ships. Which directory, which URL
 a corpus was downloaded from, and which shard is held out as validation are host-application
-identity, not a datacore concern -- see nanochat/dataset.py.
+identity, not a datacore concern.
 """
 from dataclasses import dataclass, field
 from typing import Iterable, Iterator, Protocol, runtime_checkable
@@ -35,8 +35,8 @@ class TokenSource(Protocol):
 def named_document_batches(source, tokenizer, *, num_threads: int = 8):
     """Adapts a TextSource or TokenSource into the (source_name, Iterable[EncodedDoc]) stream
     datacore.writer.write_split needs. A TextSource's text is encoded here in one call per batch,
-    BOS-prepended -- exactly nanochat/dataloader.py's original `tokenizer.encode(doc_batch,
-    prepend=bos_token, num_threads=...)` call. Deliberately not a class: encoding is one call, not
+    BOS-prepended: one `tokenizer.encode(texts, prepend=bos_id, num_threads=...)` call, so a
+    Tokenizer must accept `prepend=` (see datacore/tokenizer.py). Deliberately not a class: encoding is one call, not
     an abstraction worth its own type."""
     bos_id = tokenizer.get_bos_token_id()
     if hasattr(source, "text_batches"):
@@ -56,11 +56,8 @@ class ExampleTokenSource:
     """Adapts a datacore.records.ExampleSet (or ExampleMixture) into the TokenSource protocol:
     each record is rendered via `render` (record -> (ids, mask)) here, in chunks, so
     DataManager.prepare gets a volume flush boundary every `chunk_size` records rather than one
-    giant flush at the very end. Moved here from two identical copies (nanochat's
-    scripts/data_prep.py's TaskMixtureTokenSource, tinylab's tinylab/ops/prepare.py's) -- the loop
-    and chunking were pure ExampleSet-to-TokenSource glue; the one thing that actually varied
-    (which render call turns a record into (ids, mask), e.g. a conversation renderer with its own
-    max_tokens) is `render`, supplied by the caller."""
+    giant flush at the very end. The one caller-specific piece is `render` (which call turns a record
+    into (ids, mask), e.g. a conversation renderer with its own max_tokens)."""
     example_set: object          # an ExampleSet/ExampleMixture -- anything with __len__/__getitem__
     render: object                # Callable[[record], tuple[list[int], list[int]]]
     name: str
@@ -81,8 +78,7 @@ class ExampleTokenSource:
 class ParquetDirectorySource:
     """Reads text documents from an explicit, ordered list of parquet files -- one file is one
     source_name/volume-flush boundary (see datacore/writer.py). `paths` order and which files
-    belong to this split (e.g. "last shard is val") is the caller's policy, not this source's --
-    see nanochat.dataset.list_parquet_files. Reads a whole file's row groups into memory before
+    belong to this split (e.g. "last shard is val") is the caller's policy, not this source's. Reads a whole file's row groups into memory before
     yielding (simpler than a per-row-group boundary, and what keeps one file's tokens in one
     packer pass); a ~100MB compressed shard is a modest amount of memory for a CPU-only prep step,
     not something run on a billed GPU pod anyway."""

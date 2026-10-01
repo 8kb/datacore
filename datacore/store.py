@@ -2,8 +2,8 @@
 DatasetStore: what DataManager reads/writes a prepared dataset's manifest and volumes through.
 datacore owns the artifact *format* (a manifest plus plain .npy volumes); a store just knows where
 the bytes live. FileSystemDatasetStore is a directory convention any host application can point at
-its own prepared-data directory -- mirrors modelcore/store.py's ArtifactStore/FileSystemStore
-split.
+its own prepared-data directory -- the same protocol-plus-filesystem-implementation split
+as modelcore's ArtifactStore/FileSystemStore.
 
 A store is deliberately narrow: read/write the manifest dict, and read/write one volume (a numpy
 array) by filename. Anything about a dataset's *identity* -- which corpus, which packer, which
@@ -15,7 +15,7 @@ import os
 
 import numpy as np
 
-FORMAT = "datacore.v1"
+FORMAT = "datacore.v1"  # stamped on the manifest and on the reader's resume state
 TOKEN_BYTES_FILE = "token_bytes.npy"  # optional artefact, see manager.prepare()/reader.Dataset.token_bytes
 
 
@@ -37,6 +37,14 @@ class DatasetStore:
     def write_manifest(self, manifest: dict) -> None:
         raise NotImplementedError
 
+    def remove_manifest(self) -> None:
+        """Removes the manifest if present, making the dataset "not prepared" (see
+        DataManager.prepare, which does this before rewriting volumes)."""
+        raise NotImplementedError
+
+    def volume_filename(self, split: str, index: int, *, mask: bool = False) -> str:
+        raise NotImplementedError
+
     def write_volume(self, filename: str, array: np.ndarray) -> None:
         raise NotImplementedError
 
@@ -48,8 +56,7 @@ class FileSystemDatasetStore(DatasetStore):
     """One directory: manifest.json plus `<split>_<index:06d>.npy` (+ a sibling `.mask.npy` when
     the packer emits masks) volumes. Every write goes through a `.tmp` file then `os.replace` --
     including the manifest, which is written LAST by DataManager.prepare, so a half-prepared
-    dataset directory can never be mistaken for a complete one (same idiom as
-    nanochat.dataset.download_single_file and tasks/common.py's "manifest written last")."""
+    dataset directory can never be mistaken for a complete one."""
 
     def __init__(self, dataset_dir: str):
         self.dataset_dir = dataset_dir
@@ -75,6 +82,12 @@ class FileSystemDatasetStore(DatasetStore):
         with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(manifest, f, indent=2)
         os.replace(tmp_path, path)
+
+    def remove_manifest(self) -> None:
+        try:
+            os.remove(self._manifest_path())
+        except FileNotFoundError:
+            pass
 
     def volume_filename(self, split: str, index: int, *, mask: bool = False) -> str:
         suffix = ".mask.npy" if mask else ".npy"

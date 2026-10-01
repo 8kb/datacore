@@ -10,6 +10,9 @@ consumption contract) see [llmllab/AGENTS.md](../llmllab/AGENTS.md) and
 
 All code, comments, docs, commit messages, and any other text committed to git MUST be in English.
 
+Lineage: this family descends from karpathy/nanochat via our fork `8kb/nanochat` (archived).
+Principles (KISS/DRY/YAGNI/SOLID) and the provenance rule: [llmllab/AGENTS.md](../llmllab/AGENTS.md#style).
+
 A host application pins this repo by git tag (`pyproject.toml`'s `[tool.uv.sources]`) and consumes
 it entirely through `DataManager` — see [`llmllab/AGENTS.md`](../llmllab/AGENTS.md)'s family map
 for which repos currently do that, and each one's own `docs/architecture.md` for its side of the
@@ -48,7 +51,7 @@ datacore/
   compare its fingerprint against `dataset.info.tokenizer_fingerprint` itself), but `DataManager.open`
   does the comparison on request: pass `expect_sequence_len=`/`expect_fingerprint=` and a mismatch
   raises `datacore.DatasetMismatch` rather than the host re-implementing the same two `!=` checks
-  (this replaced three identical copies of exactly that check across nanochat/tinylab). Omitting
+  (so a host does not re-implement it). Omitting
   both keywords is unchanged from before this existed. Batch size, world size, rank, and split are
   the only things free at read time.
 - **The dataloader state is an exact global sequence cursor, not an approximation.**
@@ -67,8 +70,7 @@ datacore/
   dtype (see [modelcore/AGENTS.md](../modelcore/AGENTS.md)), independently arrived at here.
 - **A packing-algorithm parity proof against a pre-datacore migration belongs in whichever host
   did that migration, not here** — this repo's own suite proves a fresh build correct, not
-  byte-identical output to some host's pre-extraction code (nanochat's
-  `tests/test_data_packing_parity.py` is a worked example). A change to `packing.py` needs that
+  byte-identical output to some host's pre-extraction code. A change to `packing.py` needs that
   host's check run too, wherever one exists.
 - **The per-token byte-length table (`token_bytes.npy`, for a host's bits-per-byte eval) is
   entirely the tokenizer's data.** `prepare()` only calls the tokenizer's optional
@@ -86,8 +88,7 @@ python -m pytest datacore/tests -v
 
 No GPU, no real tokenizer required — `CharTokenizer` and `torch`'s CPU path cover the whole suite;
 `pyarrow`-dependent tests skip automatically if it isn't installed. `datacore/tests/test_standalone.py`
-mechanically checks that nothing under `datacore/` imports a host application (or `modelcore`, a
-sibling standalone component) — see
+mechanically checks that nothing under `datacore/` imports another family package (host, `modelcore`, `benchcore`) — see
 [docs/architecture.md#verifying-a-change-is-behavior-preserving](docs/architecture.md#verifying-a-change-is-behavior-preserving)
 for the from-scratch standalone-copy recipe.
 

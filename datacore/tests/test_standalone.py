@@ -1,9 +1,9 @@
 """
 Mechanical guard for datacore's standalone-ness: AST-scans every .py file under datacore/
-(package and its own tests) and asserts none of them import anything from the host application
-(nanochat, scripts, tasks, dev) or modelcore (a sibling standalone component, not a dependency).
+(package and its own tests) and asserts none of them import a host
+application or a sibling family package (modelcore, benchcore, tinylab).
 This is what makes `cp -r datacore /somewhere/else` a real, testable claim rather than an
-aspiration -- mirrors modelcore/tests/test_standalone.py.
+aspiration -- the same guard modelcore has.
 
 A docstring or comment mentioning "nanochat" is fine (and common); only actual import statements
 are checked.
@@ -13,7 +13,7 @@ python -m pytest datacore/tests/test_standalone.py -v
 import ast
 import os
 
-FORBIDDEN_TOP_LEVEL_PACKAGES = {"nanochat", "scripts", "tasks", "dev", "modelcore"}
+FORBIDDEN_TOP_LEVEL_PACKAGES = {"nanochat", "tinylab", "modelcore", "benchcore", "llmllab", "scripts", "tasks", "dev"}
 
 DATACORE_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -47,5 +47,5 @@ def test_no_python_file_under_datacore_imports_the_host_application():
         if found:
             violations[os.path.relpath(file_path, DATACORE_ROOT)] = sorted(found)
     assert not violations, (
-        f"datacore/ must have zero imports from its host application or modelcore, but found: {violations}"
+        f"datacore/ must have zero imports from a host or sibling package, but found: {violations}"
     )

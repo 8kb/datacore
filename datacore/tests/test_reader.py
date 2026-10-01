@@ -4,6 +4,7 @@ import pytest
 from datacore.packing import BestFitCropPacker, BestFitPadPacker, EncodedDoc
 from datacore.reader import batches, open_dataset
 from datacore.store import FileSystemDatasetStore
+from datacore.tests.helpers import read_rows, write_manifest
 from datacore.writer import write_split
 
 torch = pytest.importorskip("torch")
@@ -19,19 +20,8 @@ def _make_dataset(tmp_path, n_sequences, sequence_len=4, mask=False, volume_cap=
     packer = BestFitCropPacker(buffer_size=n_sequences + 1)
     totals = write_split(store, "train", packer, sequence_len, volume_cap, vocab_size, [("f", docs)])
     assert totals.num_sequences == n_sequences  # every doc is already exactly row_capacity wide
-    manifest = {
-        "format": "datacore.v1", "sequence_len": sequence_len, "stride": row_capacity,
-        "dtype": "uint16", "has_mask": False, "vocab_size": vocab_size, "bos_token_id": 0,
-        "tokenizer_fingerprint": "test", "packer": {"name": packer.name, "params": {}},
-        "sequences_per_volume": volume_cap,
-        "splits": {"train": {
-            "volumes": [{"file": v.file, "rows": v.rows, "source": v.source} for v in totals.volumes],
-            "num_sequences": totals.num_sequences, "num_tokens": totals.num_tokens,
-            "num_documents": totals.num_documents, "num_documents_dropped": 0,
-            "num_tokens_encoded": totals.num_tokens_encoded, "num_tokens_dropped": totals.num_tokens_dropped,
-        }},
-    }
-    store.write_manifest(manifest)
+    write_manifest(store, packer, totals, sequence_len=sequence_len, vocab_size=vocab_size, bos_token_id=0,
+                   fingerprint="test")
     return store
 
 
@@ -66,19 +56,7 @@ def test_mask_produces_ignore_index_targets(tmp_path):
     docs = [EncodedDoc(ids=[9, 1, 2], mask=[0, 1, 1])]  # -> row [9,1,2,9,9,9] mask [0,1,1,0,0,0]
     totals = write_split(store, "train", packer, sequence_len=5, sequences_per_volume=10, vocab_size=50,
                           named_document_batches=[("f", docs)])
-    manifest = {
-        "format": "datacore.v1", "sequence_len": 5, "stride": 6, "dtype": "uint16", "has_mask": True,
-        "vocab_size": 50, "bos_token_id": 9, "tokenizer_fingerprint": "t",
-        "packer": {"name": packer.name, "params": {}}, "sequences_per_volume": 10,
-        "splits": {"train": {
-            "volumes": [{"file": v.file, "rows": v.rows, "source": v.source, "mask_file": v.mask_file}
-                        for v in totals.volumes],
-            "num_sequences": totals.num_sequences, "num_tokens": totals.num_tokens,
-            "num_documents": totals.num_documents, "num_documents_dropped": 0,
-            "num_tokens_encoded": totals.num_tokens_encoded, "num_tokens_dropped": totals.num_tokens_dropped,
-        }},
-    }
-    store.write_manifest(manifest)
+    write_manifest(store, packer, totals, sequence_len=5, vocab_size=50, bos_token_id=9)
     dataset = open_dataset(store)
     inputs, targets, state = next(batches(dataset, "train", batch_size=1, infinite=False))
     assert inputs[0].tolist() == [9, 1, 2, 9, 9]
@@ -221,7 +199,7 @@ def test_open_dataset_raises_on_missing_manifest(tmp_path):
 def test_read_rows_matches_batches_content(tmp_path):
     store = _make_dataset(tmp_path, n_sequences=8, sequence_len=3, volume_cap=3)
     dataset = open_dataset(store)
-    tokens, mask = dataset.read_rows("train", 2, 4)
+    tokens, mask = read_rows(dataset, "train", 2, 4)
     assert mask is None
     for offset, row in enumerate(tokens):
         k = 2 + offset
@@ -232,7 +210,7 @@ def test_read_rows_spans_volumes_like_batches(tmp_path):
     # volume_cap=2, 5 sequences -> volumes [2,2,1]; a read of 4 rows starting at 0 spans all three.
     store = _make_dataset(tmp_path, n_sequences=5, sequence_len=2, volume_cap=2)
     dataset = open_dataset(store)
-    tokens, _ = dataset.read_rows("train", 0, 4)
+    tokens, _ = read_rows(dataset, "train", 0, 4)
     assert tokens.shape == (4, 3)
     assert tokens[:, 0].tolist() == [0, 1, 2, 3]
 
@@ -243,21 +221,9 @@ def test_read_rows_returns_mask_when_dataset_has_one(tmp_path):
     docs = [EncodedDoc(ids=[9, 1, 2], mask=[0, 1, 1])]  # -> row [9,1,2,9,9,9] mask [0,1,1,0,0,0]
     totals = write_split(store, "train", packer, sequence_len=5, sequences_per_volume=10, vocab_size=50,
                           named_document_batches=[("f", docs)])
-    manifest = {
-        "format": "datacore.v1", "sequence_len": 5, "stride": 6, "dtype": "uint16", "has_mask": True,
-        "vocab_size": 50, "bos_token_id": 9, "tokenizer_fingerprint": "t",
-        "packer": {"name": packer.name, "params": {"padding_id": packer.padding_id}}, "sequences_per_volume": 10,
-        "splits": {"train": {
-            "volumes": [{"file": v.file, "rows": v.rows, "source": v.source, "mask_file": v.mask_file}
-                        for v in totals.volumes],
-            "num_sequences": totals.num_sequences, "num_tokens": totals.num_tokens,
-            "num_documents": totals.num_documents, "num_documents_dropped": 0,
-            "num_tokens_encoded": totals.num_tokens_encoded, "num_tokens_dropped": totals.num_tokens_dropped,
-        }},
-    }
-    store.write_manifest(manifest)
+    write_manifest(store, packer, totals, sequence_len=5, vocab_size=50, bos_token_id=9)
     dataset = open_dataset(store)
-    tokens, mask = dataset.read_rows("train", 0, 1)
+    tokens, mask = read_rows(dataset, "train", 0, 1)
     assert tokens[0].tolist() == [9, 1, 2, 9, 9, 9]
     assert mask[0].tolist() == [0, 1, 1, 0, 0, 0]
 
@@ -276,19 +242,7 @@ def test_dataset_info_padding_id_from_pad_packer_manifest(tmp_path):
     docs = [EncodedDoc(ids=[9, 1, 2], mask=[0, 1, 1])]
     totals = write_split(store, "train", packer, sequence_len=5, sequences_per_volume=10, vocab_size=50,
                           named_document_batches=[("f", docs)])
-    manifest = {
-        "format": "datacore.v1", "sequence_len": 5, "stride": 6, "dtype": "uint16", "has_mask": True,
-        "vocab_size": 50, "bos_token_id": 9, "tokenizer_fingerprint": "t",
-        "packer": {"name": packer.name, "params": {"padding_id": packer.padding_id}}, "sequences_per_volume": 10,
-        "splits": {"train": {
-            "volumes": [{"file": v.file, "rows": v.rows, "source": v.source, "mask_file": v.mask_file}
-                        for v in totals.volumes],
-            "num_sequences": totals.num_sequences, "num_tokens": totals.num_tokens,
-            "num_documents": totals.num_documents, "num_documents_dropped": 0,
-            "num_tokens_encoded": totals.num_tokens_encoded, "num_tokens_dropped": totals.num_tokens_dropped,
-        }},
-    }
-    store.write_manifest(manifest)
+    write_manifest(store, packer, totals, sequence_len=5, vocab_size=50, bos_token_id=9)
     dataset = open_dataset(store)
     assert dataset.info.padding_id == 9
     assert dataset.info.bos_token_id == 9

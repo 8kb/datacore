@@ -7,14 +7,14 @@ own tests/docs/packaging, an AST guard proving standalone-ness), different conce
 
 A host application owns the corpus's *identity* — which URL, which shard count, which task mixture
 is validation — none of which this package knows about; its own tokenizer satisfies this package's
-`Tokenizer` protocol unmodified. See that host's own `docs/architecture.md` for its side (e.g.
-[nanochat's](https://github.com/8kb/nanochat/blob/master/docs/architecture.md#consuming-datamanager),
-whose `scripts/data_prep.py` is its preparation entrypoint and `nanochat/dataset.py` its corpus
-identity).
+`Tokenizer` protocol unmodified. See that host's own `docs/architecture.md` for its side.
+
+Lineage: this family descends from karpathy/nanochat via our fork `8kb/nanochat` (archived).
+Conventions and principles: [llmllab/AGENTS.md](../llmllab/AGENTS.md).
 
 ## `ExampleSet`/`HubTable`: a separate, standalone value-type surface
 
-`datacore/records.py` (`ExampleSet`/`ExampleMixture`/`ExampleSequence`) and `datacore/hub.py`
+`datacore/records.py` (`ExampleSet`/`ExampleMixture`) and `datacore/hub.py`
 (`HubTable`/`load_hub_dataset`) do **not** go through `DataManager` and do not touch the
 `datacore.v1` on-disk format at all — they're an in-memory, indexable-record-collection
 abstraction plus a HuggingFace-Hub-parquet-read mechanism, exported for a host application's own
@@ -26,13 +26,14 @@ on-disk dataset; these are a separate concern datacore happens to also own becau
 
 `ExampleSet` knows nothing about evaluation criteria (no `evaluate()`, no `eval_type`) — a host
 subclasses it and adds those. `HubTable`/`load_hub_dataset` know nothing about *which* dataset to
-load; `cache_dir` is an explicit parameter, never read from an ambient global.
+load; `cache_dir` is an explicit parameter, never read from an ambient global, and `subdir`
+(default `"task_data"`, the layout of an existing cache) names where hub datasets live under it.
+`ExampleMixture(sets, seed=42)` takes its interleave seed as a parameter.
 
 An `ExampleSet`/`ExampleMixture`'s `stop=` constructor kwarg (inherited from `ExampleSet.__init__`)
 caps its apparent length; `__len__` clamps `stop` to the true total even when the caller passes an
 over-large value, so `ExampleMixture(sets, stop=N)` is the whole "cap at N examples" idiom — no
-wrapper class needed (this replaced an identical `_Truncated` class duplicated in nanochat's and
-tinylab's own data-prep code).
+wrapper class needed.
 
 `datacore.sources.ExampleTokenSource(example_set, render, name, chunk_size=2000)` adapts an
 `ExampleSet`/`ExampleMixture` into the `TokenSource` protocol `DataManager.prepare` consumes:
@@ -106,11 +107,13 @@ raises `FileNotFoundError` if no manifest exists yet.
 
 `sequences_per_volume` acts as a **cap**, not an exact count: a volume is also flushed at every
 source-file boundary (see `writer.write_split`), so the last volume from each source file is
-short. This is what makes `prepare()` incremental (topping up a corpus with new source files
-appends volumes instead of rebuilding), parallelizable per source file with byte-identical output
-regardless of worker count, and what keeps a split's earlier volumes bit-identical across
-re-preps. The cost is at most one short, partial volume per source file. The reader never assumes
-uniform volume length — it builds a prefix sum from each volume's manifest-recorded row count.
+short, and a source file's rows depend only on that file. `prepare()` is sequential and
+overwrites: preparing into a store that already holds a dataset replaces it (the old manifest is
+removed first, so an interrupted re-preparation leaves a directory with no manifest, never one that
+mixes old and new volumes). Incremental top-up and per-file parallelism are not implemented; the
+per-file flush boundary is what would make them possible. The cost of the boundary is at most one
+short, partial volume per source file. The reader never assumes uniform volume length — it builds
+a prefix sum from each volume's manifest-recorded row count.
 
 ## Packing
 
@@ -120,9 +123,10 @@ Two implementations, in `packing.py`:
 - `BestFitCropPacker` — every row filled to exactly `row_capacity`; the largest buffered document
   that fits wins, and when nothing fits, the *shortest* buffered document (not the longest — a
   deliberately frozen tie-break) is cropped to fill the remainder. 100% utilization, some tokens
-  always dropped.
-- `BestFitPadPacker` — same search, but pads the tail with the BOS token (mask=0) instead of
-  cropping, so no token is ever discarded. A document longer than `row_capacity` can never fit a
+  always dropped. A source document whose mask has a zero is rejected (`ValueError`): this packer
+  emits no mask, so it would silently train on tokens the source meant to ignore.
+- `BestFitPadPacker` — same search, but pads the tail with `padding_id` (default: the BOS token;
+  mask=0) instead of cropping, so no token is ever discarded. A document longer than `row_capacity` can never fit a
   row at all once padding never crops it — such a document is dropped at refill time (counted in
   `num_documents_dropped`/`num_tokens_dropped`), not left stuck in the packer's buffer forever
   (which, left unfixed, degenerates into an infinite empty-padded-row generator once every other
@@ -164,10 +168,17 @@ after the step:                   cursor += B * W
 
 ## `DatasetStore`: how a dataset's bytes are addressed
 
-Mirrors `modelcore.store.ArtifactStore`: a store is deliberately narrow (read/write the manifest,
-read/write one volume by filename), and it's a real code path — `FileSystemDatasetStore` is the
+Mirrors `modelcore.store.ArtifactStore`: a store is deliberately narrow (read/write/remove the
+manifest, read/write one volume by filename, and name volumes with `volume_filename(split, index,
+mask=)`), and it's a real code path — `FileSystemDatasetStore` is the
 only implementation datacore ships, a plain directory convention any host application can point at
 its own prepared-data directory.
+
+The protocol's members are: `read_manifest()` (`None` if absent), `write_manifest(manifest)`,
+`remove_manifest()`, `volume_filename(split, index, *, mask=False)`, `write_volume(filename, array)`
+and `open_volume(filename, mmap=True)`. `FileSystemDatasetStore` also exposes its directory as
+`dataset_dir`, which `Dataset.token_bytes()` uses only to make an error message more helpful; a
+store need not have it.
 
 ## Sources and the tokenizer interface
 
@@ -213,9 +224,7 @@ mkdir -p /tmp/dc && cp -r datacore /tmp/dc/datacore && cd /tmp/dc && python -m p
 
 For anything touching the packing algorithms specifically, a host application that migrated from
 its own pre-datacore packing code may keep a frozen parity golden cross-checking
-`BestFitCropPacker`/`BestFitPadPacker` against it — see
-[nanochat's `tests/test_data_packing_parity.py`](https://github.com/8kb/nanochat/blob/master/docs/architecture.md#verifying-a-change-is-behavior-preserving)
-for a worked example. This repo's own suite proving correctness of a fresh build is necessary but
+`BestFitCropPacker`/`BestFitPadPacker` against it. This repo's own suite proving correctness of a fresh build is necessary but
 not proof a change leaves a host unaffected — for a change a host depends on, also run that host's
 suite against an editable install (`uv pip install -e ../datacore` from its venv). See
 [`llmllab/docs/subsystem-conventions.md`](../llmllab/docs/subsystem-conventions.md) for the general

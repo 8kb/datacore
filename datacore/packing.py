@@ -2,16 +2,15 @@
 Packing: turns a stream of encoded documents into fixed-width rows for a prepared dataset.
 
 Packer is duck-typed, not an ABC -- datacore has no business enforcing what a caller's packer
-subclasses from (same rule modelcore.store.ArtifactStore states for stores). Two implementations,
-each lifted behavior-for-behavior from where it lives today in the host application:
+subclasses from (same rule as a modelcore ArtifactStore). Two implementations, both ported from upstream
+karpathy/nanochat's algorithms:
 
-- BestFitCropPacker: nanochat/dataloader.py's original algorithm (100% utilization, crops to fit).
-- BestFitPadPacker: scripts/chat_sft.py's original algorithm (never crops, pads + masks instead) --
-  plus one real fix: a document longer than row_capacity can never fit a row at all once padding
-  never crops it, so it is dropped (and counted in num_documents_dropped/num_tokens_dropped)
-  rather than left stuck in the buffer forever, which is what today's code actually does (a
-  silent, permanent buffer-slot leak that becomes an infinite empty-padded-row generator in the
-  degenerate case where every other document has drained).
+- BestFitCropPacker: 100% utilization, crops to fit.
+- BestFitPadPacker: never crops, pads + masks instead. A document longer than row_capacity can
+  never fit a row at all once padding never crops it, so it is dropped (and counted in
+  num_documents_dropped/num_tokens_dropped) rather than left stuck in the buffer forever (a silent
+  buffer-slot leak that becomes an infinite empty-padded-row generator once every other document
+  has drained).
 
 `Packer.pack(documents, row_capacity)` consumes `documents` (an arbitrary, possibly-finite
 iterable of EncodedDoc) to exhaustion and yields as many full-width PackedRow as it can build.
@@ -58,12 +57,26 @@ class Packer(Protocol):
         ...
 
 
+def _best_fit_index(lengths, remaining):
+    """Index of the longest buffered document that still fits in `remaining` slots (the first one
+    on a tie), or -1 if none fits. The search both packers share."""
+    best_idx, best_len = -1, 0
+    for i, length in enumerate(lengths):
+        if length <= remaining and length > best_len:
+            best_idx, best_len = i, length
+    return best_idx
+
+
 class BestFitCropPacker:
     """BOS-aligned bestfit crop packing. Every row is filled to exactly row_capacity: the largest
     buffered document that still fits wins; when nothing fits, the SHORTEST document in the
     buffer (not the longest -- this is the actual tie-break, frozen deliberately, not "fixed")
     is cropped to fill the remainder. 100% utilization, no padding; some tokens are always
-    dropped (typically ~35% at T=2048 on real text)."""
+    dropped (typically ~35% at T=2048 on real text).
+
+    Emits no mask, so a document whose own mask supervises only part of it (a 0 anywhere) cannot be
+    packed here without silently training on tokens the source meant to ignore: that raises
+    ValueError. Use BestFitPadPacker for masked sources."""
 
     name = "bestfit_crop"
     emits_mask = False
@@ -85,6 +98,11 @@ class BestFitCropPacker:
                 if doc is None:
                     exhausted = True
                     return
+                if doc.mask is not None and not all(doc.mask):
+                    raise ValueError(
+                        "BestFitCropPacker emits no mask, but a document carries a mask with zeros; "
+                        "use BestFitPadPacker for a masked source"
+                    )
                 buf.append(list(doc.ids))
 
         refill()
@@ -99,11 +117,7 @@ class BestFitCropPacker:
                     row_complete = False  # source ran dry mid-row: drop the partial row
                     break
                 remaining = row_capacity - pos
-                best_idx, best_len = -1, 0
-                for i, doc in enumerate(buf):
-                    doc_len = len(doc)
-                    if doc_len <= remaining and doc_len > best_len:
-                        best_idx, best_len = i, doc_len
+                best_idx = _best_fit_index(map(len, buf), remaining)
                 if best_idx >= 0:
                     doc = buf.pop(best_idx)
                     row.extend(doc)
@@ -126,13 +140,12 @@ class BestFitPadPacker:
     padding_id defaults to None, which resolves to `bos_token_id` -- this packer's original,
     only-ever behavior before this parameter existed, and what every already-prepared dataset on
     disk was built with. Passing a distinct value (any valid token id other than bos_token_id) is
-    for a future consumer that wants an unambiguous pad tail: with bos_token_id reused as filler,
-    the tail looks like a document (BOS-started) to BOS-based document-boundary logic, even though
-    it's pure padding; modelcore.kernels.flash_attn.build_doc_args has a matching padding_id
-    parameter that knows how to handle either choice -- its own None default applies a fallback
-    heuristic (a document made entirely of bos_token_id can only be this pad tail, since a real
-    document always has non-BOS content after its own leading BOS) so an already-prepared
-    bos_token_id-padded dataset still gets correct document boundaries without re-preparing."""
+    for a reader that wants an unambiguous pad tail: with bos_token_id reused as filler, the tail
+    looks like a document (BOS-started) to BOS-based document-boundary logic, even though it's
+    pure padding. The resolved value is recorded in the manifest (DatasetInfo.padding_id) so a
+    reader can handle either choice; one that doesn't know it can fall back to the heuristic that
+    a document made entirely of bos_token_id can only be a pad tail, since a real document always
+    has non-BOS content after its own leading BOS."""
 
     name = "bestfit_pad"
     emits_mask = True
@@ -179,11 +192,7 @@ class BestFitPadPacker:
                 if len(buf) < self.buffer_size:
                     refill()
                 remaining = row_capacity - len(row)
-                best_idx, best_len = -1, 0
-                for i, (ids, _) in enumerate(buf):
-                    ids_len = len(ids)
-                    if ids_len <= remaining and ids_len > best_len:
-                        best_idx, best_len = i, ids_len
+                best_idx = _best_fit_index((len(ids) for ids, _ in buf), remaining)
                 if best_idx >= 0:
                     ids, mask = buf.pop(best_idx)
                     row.extend(ids)

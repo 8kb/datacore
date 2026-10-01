@@ -1,6 +1,5 @@
 from datacore import CharTokenizer
-
-CHARS = " abcdefghijklmnopqrstuvwxyz.,!?'\n0123456789"
+from datacore.tests.helpers import CHARS
 
 
 def test_unknown_char_maps_to_zero():

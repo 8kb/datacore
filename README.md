@@ -47,6 +47,9 @@ for inputs, targets, state in manager.batches(dataset, "train", batch_size=8, in
     ...  # inputs: int32 (8, 128), targets: int64 (8, 128), state: the resumable cursor
 ```
 
+Lineage: this family descends from [karpathy/nanochat](https://github.com/karpathy/nanochat) via our fork
+`8kb/nanochat` (archived). Conventions and principles: [llmllab/AGENTS.md](../llmllab/AGENTS.md).
+
 ## Tests
 
 ```bash

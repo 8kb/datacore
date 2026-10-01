@@ -1,11 +1,10 @@
 """
-Test ExampleSet/ExampleMixture/ExampleSequence: slicing views and combinators (in-memory, no
-network). Ported from nanochat/tests/test_tasks.py's container-logic tests (its HubDataset/
-render_mc tests moved to test_hub.py / stayed in benchcore respectively).
+Test ExampleSet/ExampleMixture: slicing views and combinators (in-memory, no network). Ported from
+our nanochat fork's tests/test_tasks.py.
 
 python -m pytest datacore/tests/test_records.py -v
 """
-from datacore.records import ExampleMixture, ExampleSequence, ExampleSet
+from datacore.records import ExampleMixture, ExampleSet
 
 
 class ToyExampleSet(ExampleSet):
@@ -43,9 +42,7 @@ def test_example_set_slicing():
 
 def test_example_set_stop_clamps_to_true_length():
     """An over-large explicit stop is clamped, not taken at face value -- this is what lets a
-    caller pass stop=<some cap> without separately computing min(cap, len) first (replaces the
-    _Truncated wrapper class both nanochat's data_prep.py and tinylab's ops/prepare.py used to
-    define for exactly this)."""
+    caller pass stop=<some cap> without separately computing min(cap, len) first (no wrapper class needed)."""
     s = ToyExampleSet(n=10, stop=1000)
     assert len(s) == 10
     assert [s[i]["i"] for i in range(10)] == list(range(10))
@@ -82,10 +79,8 @@ def test_mixture_oversampling():
     assert len(mixture) == 6
 
 
-def test_sequence_is_concatenation_in_order():
-    sequence = ExampleSequence([ToyExampleSet(n=3, tag="a"), ToyExampleSet(n=2, tag="b")])
-    assert len(sequence) == 5
-    tags = [sequence[i]["tag"] for i in range(5)]
-    assert tags == ["a", "a", "a", "b", "b"]
-    idxs = [sequence[i]["i"] for i in range(5)]
-    assert idxs == [0, 1, 2, 0, 1]
+def test_mixture_seed_changes_the_interleave_and_the_default_is_stable():
+    sets = [ToyExampleSet(n=5, tag="a"), ToyExampleSet(n=5, tag="b")]
+    order = lambda m: [(m[i]["tag"], m[i]["i"]) for i in range(len(m))]
+    assert order(ExampleMixture(sets)) == order(ExampleMixture(sets, seed=42))
+    assert order(ExampleMixture(sets, seed=1)) != order(ExampleMixture(sets, seed=42))

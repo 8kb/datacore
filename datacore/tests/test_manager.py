@@ -2,10 +2,9 @@ import pytest
 
 from datacore import BestFitCropPacker, BestFitPadPacker, CharTokenizer, DataManager, DatasetMismatch, FileSystemDatasetStore
 from datacore.packing import EncodedDoc
+from datacore.tests.helpers import CHARS, read_rows
 
 torch = pytest.importorskip("torch")
-
-CHARS = " abcdefghijklmnopqrstuvwxyz.,!?'\n0123456789"
 
 
 class ListTextSource:
@@ -92,7 +91,7 @@ def test_prepare_with_token_source_for_sft_style_data(tmp_path):
     assert manifest["has_mask"] is True
     dataset = manager.open(store)
     inputs, targets, _ = next(manager.batches(dataset, "train", batch_size=1, infinite=False))
-    assert (-1 in targets[0].tolist()) or True  # some positions may be masked; shape check is the real assertion
+    assert -1 in targets[0].tolist()  # the user turn and the pad tail are masked out
     assert inputs.shape == (1, 16)
 
 
@@ -171,7 +170,7 @@ def test_dataset_info_surfaces_padding_id_and_bos_token_id(tmp_path):
     assert ds_crop.info.bos_token_id == bos
 
 
-def test_read_rows_round_trips_through_data_manager(tmp_path):
+def test_prepared_rows_round_trip_through_data_manager(tmp_path):
     tok = CharTokenizer(CHARS)
     texts = ["one two three four five.\n"] * 6
     manager = DataManager()
@@ -179,7 +178,7 @@ def test_read_rows_round_trips_through_data_manager(tmp_path):
     manager.prepare(store, sources={"train": ListTextSource([("f", texts)])}, tokenizer=tok,
                      sequence_len=6, sequences_per_volume=3, packer=BestFitCropPacker(buffer_size=20))
     dataset = manager.open(store)
-    tokens, mask = manager.read_rows(dataset, "train", 0, dataset.num_sequences("train"))
+    tokens, mask = read_rows(dataset, "train", 0, dataset.num_sequences("train"))
     assert mask is None
     assert tokens.shape == (dataset.num_sequences("train"), 7)
 
@@ -286,3 +285,39 @@ def test_two_splits_from_different_sources(tmp_path):
     dataset = manager.open(store)
     assert dataset.num_sequences("train") > 0
     assert dataset.num_sequences("val") > 0
+
+
+def test_prepare_removes_the_old_manifest_before_rewriting_volumes(tmp_path):
+    tok = CharTokenizer(CHARS)
+    store = FileSystemDatasetStore(str(tmp_path))
+    kwargs = dict(tokenizer=tok, sequence_len=6, sequences_per_volume=3, packer=BestFitCropPacker(buffer_size=20))
+    DataManager().prepare(store, sources={"train": ListTextSource([("f", ["one two three four five.\n"] * 6)])}, **kwargs)
+    assert store.read_manifest() is not None
+
+    class Exploding:
+        def text_batches(self):
+            raise RuntimeError("interrupted")
+
+    with pytest.raises(RuntimeError):
+        DataManager().prepare(store, sources={"train": Exploding()}, **kwargs)
+    assert store.read_manifest() is None  # never "old manifest + half-new volumes"
+    with pytest.raises(FileNotFoundError):
+        DataManager().open(store)
+
+
+def test_prepare_rejects_a_packer_whose_bos_id_disagrees_with_the_tokenizer(tmp_path):
+    tok = CharTokenizer(CHARS)
+    store = FileSystemDatasetStore(str(tmp_path))
+    with pytest.raises(ValueError, match="BOS"):
+        DataManager().prepare(
+            store, sources={"train": ListTokenSource([("f", [EncodedDoc(ids=[1, 2, 3])])])}, tokenizer=tok,
+            sequence_len=4, sequences_per_volume=3, packer=BestFitPadPacker(bos_token_id=0))
+
+
+def test_manifest_has_no_unread_fields(tmp_path):
+    tok = CharTokenizer(CHARS)
+    store = FileSystemDatasetStore(str(tmp_path))
+    manifest = DataManager().prepare(
+        store, sources={"train": ListTextSource([("f", ["abc def.\n"] * 4)])}, tokenizer=tok,
+        sequence_len=4, sequences_per_volume=3, packer=BestFitCropPacker(buffer_size=8))
+    assert "stride" not in manifest and "sequences_per_volume" not in manifest

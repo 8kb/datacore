@@ -3,7 +3,7 @@ import pytest
 
 from datacore import CharTokenizer
 
-CHARS = " abcdefghijklmnopqrstuvwxyz.,!?'\n0123456789"
+from datacore.tests.helpers import CHARS
 
 
 @pytest.fixture

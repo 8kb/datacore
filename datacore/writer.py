@@ -2,12 +2,12 @@
 writer.py: rolls a stream of PackedRow into volumes and writes them through a DatasetStore.
 
 A volume is flushed at `sequences_per_volume` (the cap) OR at every source-file boundary,
-whichever comes first -- never carrying a packer's document buffer across source files. This is
-what makes DataManager.prepare incremental (topping up a corpus with new source files appends
-volumes rather than rebuilding), parallelizable per source file with byte-identical output
-regardless of worker count, and what keeps a split's earlier volumes bit-identical across re-preps
-(the val split's stability across runs depends on this). The cost: at most one short, partial
-volume per source file -- a handful of tokens, not a meaningful loss. See
+whichever comes first -- never carrying a packer's document buffer across source files. So a
+source file's rows depend only on that file (the packer starts empty at each boundary), which keeps
+a split's volumes deterministic and independent of what follows. The cost: at most one short,
+partial volume per source file -- a handful of tokens, not a meaningful loss. DataManager.prepare
+writes the files sequentially and overwrites a previous preparation (see its docstring); resuming a
+half-written preparation or topping a corpus up by appending volumes is not implemented. See
 datacore/docs/architecture.md.
 """
 from dataclasses import dataclass, field

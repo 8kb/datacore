@@ -1,9 +1,8 @@
 """
 ExampleSet: a lightweight, sliceable view over an indexable collection of records, plus
-ExampleMixture/ExampleSequence combinators. Ported verbatim (container logic only) from
-nanochat/tasks/common.py's Task/TaskMixture/TaskSequence -- the eval-specific half (eval_type,
-evaluate(), reward()) stayed in the host's eval subsystem (benchcore), since datacore has no
-business knowing what "correct" means for a record.
+an ExampleMixture combinator. Ported (container logic only) from our nanochat fork's
+tasks/common.py. datacore has no business knowing what "correct" means for a record, so
+eval-specific methods (eval_type, evaluate(), reward()) belong to whoever subclasses ExampleSet.
 
 Not an ABC -- duck typing is enough, and datacore has no business enforcing what a caller's record
 collection subclasses from. A record is whatever get_example() returns; datacore never looks
@@ -55,6 +54,7 @@ class ExampleMixture(ExampleSet):
     """
     Mixes multiple ExampleSets into one, deterministically shuffled so the sets interleave
     throughout instead of appearing as contiguous blocks.
+    `seed` fixes the interleave (the default is the historical value, so existing mixtures are unchanged).
     Fun trick: if you wish to oversample any set, just pass it in multiple times in the list.
 
     To cap a mixture at N examples (e.g. a smoke-test-sized run), pass stop=N straight through to
@@ -63,7 +63,7 @@ class ExampleMixture(ExampleSet):
     wrapper class to do it.
     """
 
-    def __init__(self, sets, **kwargs):
+    def __init__(self, sets, *, seed=42, **kwargs):
         super().__init__(**kwargs)
         self.sets = sets
         self.lengths = [len(s) for s in self.sets]
@@ -74,7 +74,7 @@ class ExampleMixture(ExampleSet):
             for local_idx in range(set_length):
                 self.index_map.append((set_idx, local_idx))
         # Deterministically shuffle so the sets are mixed throughout, not concatenated
-        rng = random.Random(42)
+        rng = random.Random(seed)
         rng.shuffle(self.index_map)
         # Note: this is not the most elegant or best solution, but it's ok for now
 
@@ -86,25 +86,3 @@ class ExampleMixture(ExampleSet):
         set_idx, local_idx = self.index_map[index]
         return self.sets[set_idx][local_idx]
 
-
-class ExampleSequence(ExampleSet):
-    """
-    Sequentially concatenates a list of ExampleSets. Useful for curricula that require a fixed
-    order rather than a mixture's interleave.
-    """
-
-    def __init__(self, sets, **kwargs):
-        super().__init__(**kwargs)
-        self.sets = sets
-        self.lengths = [len(s) for s in self.sets]
-        self.num_examples_total = sum(self.lengths)
-
-    def num_examples(self):
-        return self.num_examples_total
-
-    def get_example(self, index):
-        assert 0 <= index < self.num_examples_total, f"Index {index} out of range for sequence with {self.num_examples_total} examples"
-        for set_idx, set_length in enumerate(self.lengths):
-            if index < set_length:
-                return self.sets[set_idx][index]
-            index -= set_length

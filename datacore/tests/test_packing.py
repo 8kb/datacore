@@ -1,3 +1,5 @@
+import pytest
+
 from datacore.packing import BestFitCropPacker, BestFitPadPacker, EncodedDoc
 
 
@@ -115,3 +117,15 @@ def test_pack_is_a_generator_and_source_is_consumed_exactly_once():
 
     list(packer.pack(gen(), row_capacity=4))
     assert len(calls) == 4
+
+
+def test_crop_packer_rejects_a_source_with_a_partial_mask():
+    packer = BestFitCropPacker(buffer_size=4)
+    with pytest.raises(ValueError, match="mask"):
+        list(packer.pack([EncodedDoc(ids=[1, 2, 3, 4], mask=[0, 1, 1, 1])], 4))
+
+
+def test_crop_packer_accepts_an_all_ones_mask():
+    packer = BestFitCropPacker(buffer_size=4)
+    rows = list(packer.pack([EncodedDoc(ids=[1, 2, 3, 4], mask=[1, 1, 1, 1])], 4))
+    assert [r.ids for r in rows] == [[1, 2, 3, 4]]

@@ -9,13 +9,13 @@ from dataclasses import dataclass
 
 import numpy as np
 
-FORMAT = "datacore.v1"
+from datacore.store import FORMAT
 
 
 @dataclass(frozen=True)
 class DatasetInfo:
     """What DataManager.open returns for presentation -- the host application formats it (same
-    rule as modelcore.ModelStats: a value type, not a print statement, crosses the boundary)."""
+    rule as modelcore's ModelStats: a value type, not a print statement, crosses the boundary)."""
     sequence_len: int
     vocab_size: int
     dtype: str
@@ -124,13 +124,6 @@ class Dataset:
     def num_sequences(self, split: str) -> int:
         return self._split_indices[split].num_sequences
 
-    def read_rows(self, split: str, start: int, count: int):
-        """Raw (tokens, mask) numpy arrays for rows [start, start+count) of a split, straight off
-        the memmapped volumes -- the read-side counterpart of batches()'s windowing, minus the
-        input/target shift and DDP cursor logic, for callers that want whole rows (e.g. a
-        diagnostic scan) rather than a training batch. mask is None when the dataset has none."""
-        return self._split_indices[split].read_contiguous(start, count)
-
     def token_bytes(self) -> np.ndarray:
         """The per-token UTF-8 byte-length vector the tokenizer supplied at prepare() time (see
         manager.prepare()'s token_byte_lengths() handling) -- shape (vocab_size,), 0 for any
@@ -235,8 +228,7 @@ def batches(dataset: Dataset, split: str, batch_size: int, *, rank: int = 0, wor
         inputs = torch.from_numpy(inputs_np)
         targets = torch.from_numpy(targets_np)
         if device is not None:
-            # pin_memory()/non_blocking transfer is a CUDA-specific optimization (matches
-            # nanochat/dataloader.py's original `use_cuda = device == "cuda"` string check) --
+            # pin_memory()/non_blocking transfer is a CUDA-specific optimization --
             # MPS rejects a pinned-CPU-storage tensor moved non_blocking with a device-mismatch
             # RuntimeError, and a plain .to(device) is already synchronous there anyway.
             use_cuda = str(device).startswith("cuda")

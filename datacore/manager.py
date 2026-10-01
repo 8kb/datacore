@@ -3,7 +3,7 @@ DataManager: the one entrypoint datacore exposes. Everything a caller needs to p
 pretokenized, packed, multipart dataset (write) or read exactly-resumable, DDP-shardable batches
 from one (read) goes through here. Nothing else in datacore (packing, writer, reader, sources,
 download internals) is meant to be used directly from outside the package -- see the module
-docstrings for why each exists, but DataManager is the seam (mirrors modelcore.ModelManager).
+docstrings for why each exists, but DataManager is the seam (the same one-entrypoint shape as modelcore.ModelManager).
 """
 import numpy as np
 
@@ -23,15 +23,22 @@ class DataManager:
         different task mixture -- datacore doesn't assume either shape.
 
         num_threads: forwarded to a TextSource's tokenizer.encode() call (tiktoken-style
-        tokenizers release the GIL for batch encoding, so this is real parallelism -- see
-        datacore/docs/architecture.md's "Preparation throughput" note). Ignored for a TokenSource,
+        tokenizers release the GIL for batch encoding, so this is real parallelism). Ignored for a TokenSource,
         which arrives already encoded.
 
-        Writes every split's volumes, then the manifest last (so a half-prepared directory can
-        never be mistaken for a complete one). Returns the manifest dict.
+        Writes every split's volumes sequentially, then the manifest last (so a half-prepared directory
+        can never be mistaken for a complete one). Preparing into a store that already holds a
+        dataset overwrites it: volumes are rewritten from index 0 and the manifest replaced. Returns
+        the manifest dict.
         """
         vocab_size = tokenizer.get_vocab_size()
         bos_id = tokenizer.get_bos_token_id()
+        packer_bos_id = getattr(packer, "bos_token_id", None)
+        if packer_bos_id is not None and packer_bos_id != bos_id:
+            raise ValueError(f"packer.bos_token_id={packer_bos_id} disagrees with the tokenizer's BOS id {bos_id}")
+        # Drop the old manifest before any volume is rewritten, so an interrupted re-preparation
+        # leaves a directory that reads as "not prepared", never old manifest + new volumes.
+        store.remove_manifest()
         manifest_splits = {}
         for split, source in sources.items():
             named_batches = named_document_batches(source, tokenizer, num_threads=num_threads)
@@ -48,14 +55,12 @@ class DataManager:
         manifest = {
             "format": FORMAT,
             "sequence_len": sequence_len,
-            "stride": sequence_len + 1,
             "dtype": str(token_dtype(vocab_size)),
             "has_mask": bool(packer.emits_mask),
             "vocab_size": vocab_size,
             "bos_token_id": bos_id,
             "tokenizer_fingerprint": tokenizer.fingerprint(),
             "packer": {"name": packer.name, "params": packer_params},
-            "sequences_per_volume": sequences_per_volume,
             "splits": manifest_splits,
         }
         # token_byte_lengths() is an OPTIONAL tokenizer method (see datacore/tokenizer.py) -- when
@@ -81,9 +86,7 @@ class DataManager:
         as always). expect_sequence_len/expect_fingerprint are opt-in: when given, raises
         DatasetMismatch if the dataset's own info.sequence_len/info.tokenizer_fingerprint disagrees
         -- datacore still never decides *to* compare (a caller that passes neither sees exactly
-        today's behavior); this only saves every caller re-writing the same two checks (previously
-        duplicated identically across nanochat's scripts/base_train.py, scripts/base_eval.py, and
-        tinylab's tinylab/ops/train.py). Remediation text (what command/step to re-run) stays the
+        today's behavior); this only saves every caller re-writing the same two checks. Remediation text (what command/step to re-run) stays the
         caller's own, since datacore doesn't know how a host reprepares a dataset."""
         dataset = open_dataset(store)
         if expect_sequence_len is not None and dataset.info.sequence_len != expect_sequence_len:
@@ -94,9 +97,6 @@ class DataManager:
 
     def batches(self, dataset: Dataset, split: str, batch_size: int, **kwargs):
         return _batches(dataset, split, batch_size, **kwargs)
-
-    def read_rows(self, dataset: Dataset, split: str, start: int, count: int):
-        return dataset.read_rows(split, start, count)
 
     def token_bytes(self, dataset: Dataset) -> np.ndarray:
         """The per-token UTF-8 byte-length vector supplied by the tokenizer at prepare() time

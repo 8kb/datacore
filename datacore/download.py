@@ -1,10 +1,7 @@
 """
-download.py: a generic resumable HTTP shard downloader -- the mechanism nanochat/dataset.py's
-download_single_file used to own inline, generalized to any URL-template + index-range corpus.
-Uses stdlib urllib.request, not the `requests` package (nanochat's own tasks/common.py already
-does the same; `requests` is imported-but-undeclared debt elsewhere in this repo -- see
-docs/roadmap.md's "Explicitly deferred" -- and a brand-new standalone package shouldn't add a
-dependency it doesn't need).
+download.py: a generic resumable HTTP shard downloader for any URL-template + index-range corpus.
+Uses stdlib urllib.request, not the `requests` package, so a standalone package adds no dependency
+it doesn't need.
 """
 import os
 import time

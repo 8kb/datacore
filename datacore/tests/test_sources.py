@@ -5,10 +5,7 @@ from datacore.packing import EncodedDoc
 from datacore.records import ExampleSet
 from datacore.sources import ExampleTokenSource, named_document_batches
 
-pa = pytest.importorskip("pyarrow")
-pq = pytest.importorskip("pyarrow.parquet")
-
-CHARS = " abcdefghijklmnopqrstuvwxyz.,!?'\n0123456789"
+from datacore.tests.helpers import CHARS
 
 
 class ListTextSource:
@@ -92,7 +89,7 @@ def test_example_token_source_respects_chunk_boundaries():
 
 
 def test_example_token_source_satisfies_token_source_protocol():
-    tok = CharTokenizer(" abcdefghijklmnopqrstuvwxyz.,!?'\n0123456789")
+    tok = CharTokenizer(CHARS)
     source = ExampleTokenSource(ToyRecordSet(2), _render, "train")
     out = list(named_document_batches(source, tok))
     assert len(out) == 1
@@ -102,6 +99,8 @@ def test_example_token_source_satisfies_token_source_protocol():
 
 
 def test_parquet_directory_source(tmp_path):
+    pa = pytest.importorskip("pyarrow")
+    pq = pytest.importorskip("pyarrow.parquet")
     from datacore.sources import ParquetDirectorySource
     path = tmp_path / "shard_00000.parquet"
     table = pa.Table.from_pydict({"text": ["doc one", "doc two", "doc three"]})
